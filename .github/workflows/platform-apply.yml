@@ -1,0 +1,148 @@
+name: Terraform Platform Apply
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'stacks/**'
+      - 'modules/**'
+      - 'envs/**'
+      - '.github/workflows/platform-apply.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'stacks/**'
+      - 'modules/**'
+      - 'envs/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      stack:
+        description: 'Stack to deploy'
+        required: true
+        type: choice
+        options:
+          - landing-zone
+          - network
+          - logging
+          - config-aggregator
+          - observability
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  terraform:
+    name: Terraform ${{ matrix.stack }} - ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        environment: 
+          - ${{ github.event.inputs.environment || 'dev' }}
+        stack:
+          - ${{ github.event.inputs.stack || 'network' }}
+      fail-fast: false
+    
+    environment: ${{ matrix.environment }}
+    
+    defaults:
+      run:
+        working-directory: stacks/${{ matrix.stack }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActions-${{ matrix.environment }}-${{ matrix.stack }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+      
+      - name: Terraform Init
+        id: init
+        run: |
+          terraform init \
+            -backend-config=../../envs/${{ matrix.environment }}/backend.hcl \
+            -upgrade
+      
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+      
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -var-file=../../envs/${{ matrix.environment }}/stacks/${{ matrix.stack }}/vars.tfvars \
+            -out=tfplan \
+            -no-color
+        continue-on-error: true
+      
+      - name: Comment PR with Plan
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
+            #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+            
+            <details><summary>Show Plan</summary>
+            
+            \`\`\`terraform
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+            
+            </details>
+            
+            **Stack**: ${{ matrix.stack }}
+            **Environment**: ${{ matrix.environment }}
+            **Pusher**: @${{ github.actor }}
+            **Action**: ${{ github.event_name }}`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+      
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+      
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform apply -auto-approve tfplan
+      
+      - name: Terraform Apply (Manual)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          terraform apply \
+            -var-file=../../envs/${{ matrix.environment }}/stacks/${{ matrix.stack }}/vars.tfvars \
+            -auto-approve
