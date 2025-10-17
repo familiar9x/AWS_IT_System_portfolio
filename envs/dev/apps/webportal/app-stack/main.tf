@@ -13,7 +13,7 @@ terraform {
   backend "s3" {
     bucket         = "your-terraform-state-bucket"
     key            = "dev/apps/webportal/app/terraform.tfstate"
-    region         = "ap-southeast-1"
+    region         = "us-east-1"
     encrypt        = true
     kms_key_id     = "alias/terraform-state"
     dynamodb_table = "terraform-state-lock"

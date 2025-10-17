@@ -124,7 +124,7 @@ Sao chép mã
 - uses: aws-actions/configure-aws-credentials@v4
   with:
     role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-    aws-region: ap-southeast-1
+    aws-region: us-east-1
 🌍 Mối quan hệ các stack (Triển khai tuần tự)
 pgsql
 Sao chép mã

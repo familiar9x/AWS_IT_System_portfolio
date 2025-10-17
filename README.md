@@ -162,7 +162,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ap-southeast-1
+          aws-region: us-east-1
       
       - name: Terraform Apply
         run: |

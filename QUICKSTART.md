@@ -96,7 +96,7 @@ Tag `awsApplication` được tự động apply và Lambda sẽ reconcile với
 ### 1. Tạo secrets trong GitHub repo:
 
 - `AWS_ACCOUNT_ID` - AWS account ID
-- `AWS_REGION` - ap-southeast-1
+- `AWS_REGION` - us-east-1
 - `AWS_ROLE_ARN` - ARN từ foundation/iam-oidc output
 
 ### 2. Workflow example:

@@ -10,7 +10,7 @@ variable "organization_name" {
 variable "default_region" {
   description = "Default AWS region"
   type        = string
-  default     = "ap-southeast-1"
+  default     = "us-east-1"
 }
 
 variable "default_tags" {

@@ -13,7 +13,7 @@ provider "aws" {
 variable "region" {
   description = "AWS region"
   type        = string
-  default     = "ap-southeast-1"
+  default     = "us-east-1"
 }
 
 variable "resource_explorer_view_arn" {
