@@ -1,211 +1,261 @@
 # Quick Start Guide
 
-## Prerequisites
+## 🎯 Mục tiêu
 
-1. **AWS Account Setup**
-   - AWS Organization enabled
-   - At least 3 AWS accounts (dev, staging, prod)
-   - Administrative access to management account
+Dự án này implement **IaC + GitOps + CMDB tự động** trên AWS:
+- Hạ tầng as code với Terraform
+- CI/CD với GitHub Actions (OIDC authentication)
+- CMDB tự động qua AppRegistry + Tag Reconciler
 
-2. **Local Tools**
-   - Terraform >= 1.5.0
-   - AWS CLI configured
-   - Git
+## 📁 Cấu trúc dự án
 
-3. **GitHub Setup**
-   - GitHub repository
-   - GitHub Actions enabled
-   - OIDC provider configured in AWS
-
-## Step 1: Configure Backend
-
-Update the backend configuration files with your S3 bucket names:
-
-```bash
-# Edit these files:
-envs/dev/backend.hcl
-envs/staging/backend.hcl
-envs/prod/backend.hcl
+```
+terraform/
+├── foundation/           # Deploy 1 lần - hạ tầng nền toàn org
+├── envs/{dev,stg,prod}/ # Các môi trường
+├── modules/             # Modules tái sử dụng
+└── deploy.sh            # Script deploy tự động
 ```
 
-Create the S3 buckets and DynamoDB tables for state management:
+## 🚀 Deployment
+
+### Bước 1: Foundation (Deploy 1 lần đầu)
 
 ```bash
-# For each environment, create:
-# - S3 bucket for Terraform state
-# - DynamoDB table for state locking
-# - KMS key for encryption (optional but recommended)
+cd terraform
+./deploy.sh foundation
 ```
 
-## Step 2: Configure Variables
+Các components được deploy theo thứ tự:
+1. **Backend** - S3, DynamoDB, KMS cho state
+2. **IAM OIDC** - Provider cho GitHub Actions
+3. **Organizations** - AWS Orgs, OUs, Tag Policies
+4. **AppRegistry** - System Catalog trung tâm
+5. **Config Aggregator** - Gom config từ nhiều accounts
+6. **Resource Explorer** - Index toàn org
+7. **Tag Reconciler** - Lambda auto-sync tags
 
-Update the `vars.tfvars` files for each stack and environment:
+### Bước 2: Update backend config
+
+Sau khi foundation deploy xong, lấy output và update backend config:
 
 ```bash
-# Example for dev network stack:
-envs/dev/stacks/network/vars.tfvars
+cd foundation/backend
+terraform output state_bucket_name
+# Copy output và update vào tất cả backend.tf files
 ```
 
-Key values to update:
-- AWS account IDs
-- Organization ID
-- VPC CIDR blocks
-- Region preferences
-- Tag values (Owner, CostCenter, etc.)
+### Bước 3: Deploy môi trường
 
-## Step 3: Setup IAM Roles for GitHub Actions
+```bash
+# Dev environment
+./deploy.sh dev
 
-Create IAM roles in each AWS account with OIDC trust relationship:
+# Staging
+./deploy.sh stg
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
+# Production
+./deploy.sh prod
+```
+
+## 🏷️ Tagging Requirements
+
+**BẮT BUỘC** mọi resource phải có tags:
+
+```hcl
+module "appregistry" {
+  source = "../../modules/appregistry-application"
+  
+  application_name = "webportal-dev"
+  
+  tags = {
+    Environment  = "dev"
+    Application  = "webportal"
+    CostCenter   = "CC-001"
+    BusinessUnit = "IT"
+    Criticality  = "Medium"
+  }
+}
+
+resource "aws_instance" "app" {
+  # ...
+  
+  tags = merge(
+    module.appregistry.application_tag,  # awsApplication tag
     {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/main"
-        }
-      }
+      Name = "WebPortal App Server"
     }
-  ]
+  )
 }
 ```
 
-## Step 4: Deploy Stacks in Order
+Tag `awsApplication` được tự động apply và Lambda sẽ reconcile với AppRegistry.
 
-Deploy stacks in the following order:
+## 🔧 GitHub Actions Setup
 
-### 4.1 Landing Zone (Management Account)
-```bash
-./scripts/deploy.sh dev landing-zone plan
-./scripts/deploy.sh dev landing-zone apply
+### 1. Tạo secrets trong GitHub repo:
+
+- `AWS_ACCOUNT_ID` - AWS account ID
+- `AWS_REGION` - ap-southeast-1
+- `AWS_ROLE_ARN` - ARN từ foundation/iam-oidc output
+
+### 2. Workflow example:
+
+```yaml
+name: Terraform Deploy
+
+on:
+  push:
+    branches: [main, staging, develop]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Terraform Init & Apply
+        run: |
+          cd terraform/envs/${{ env.ENVIRONMENT }}
+          terraform init
+          terraform plan
+          terraform apply -auto-approve
 ```
 
-### 4.2 Network (Network Account)
+## 📊 Monitoring CMDB
+
+### Query AppRegistry:
+
 ```bash
-./scripts/deploy.sh dev network plan
-./scripts/deploy.sh dev network apply
+# List all applications
+aws servicecatalog-appregistry list-applications
+
+# Get application details
+aws servicecatalog-appregistry get-application \
+  --application webportal-dev
+
+# List associated resources
+aws servicecatalog-appregistry list-associated-resources \
+  --application webportal-dev
 ```
 
-### 4.3 Logging (Security/Audit Account)
+### Query Resource Explorer:
+
 ```bash
-./scripts/deploy.sh dev logging plan
-./scripts/deploy.sh dev logging apply
+# Search by application tag
+aws resource-explorer-2 search \
+  --query-string "tag.key:awsApplication tag.value:webportal-dev"
+
+# Search all tagged resources
+aws resource-explorer-2 search \
+  --query-string "tag.key:awsApplication"
 ```
 
-### 4.4 Config Aggregator (Security Account)
+### Check Config Aggregator:
+
 ```bash
-./scripts/deploy.sh dev config-aggregator plan
-./scripts/deploy.sh dev config-aggregator apply
+# List resources in aggregator
+aws configservice list-aggregate-discovered-resources \
+  --configuration-aggregator-name org-config-aggregator \
+  --resource-type AWS::EC2::Instance
 ```
 
-### 4.5 Observability (Monitoring Account)
+## 🔍 Tag Reconciler Lambda
+
+Lambda chạy tự động mỗi 6 giờ và thực hiện:
+1. Query Resource Explorer tìm resources có tag `awsApplication`
+2. Group theo application name
+3. Đối chiếu với AppRegistry
+4. Auto-associate resources còn thiếu
+
+Xem logs:
+
 ```bash
-./scripts/deploy.sh dev observability plan
-./scripts/deploy.sh dev observability apply
+aws logs tail /aws/lambda/tag-reconciler --follow
 ```
 
-## Step 5: Configure GitHub Secrets
+Manual trigger:
 
-Add these secrets to your GitHub repository:
-
-**For dev environment:**
-- `AWS_DEPLOY_ROLE_ARN`: ARN of the deployment role in dev account
-
-**For staging environment:**
-- `AWS_DEPLOY_ROLE_ARN`: ARN of the deployment role in staging account
-
-**For prod environment:**
-- `AWS_DEPLOY_ROLE_ARN`: ARN of the deployment role in prod account
-
-## Step 6: Test CI/CD Pipeline
-
-1. Create a feature branch
-2. Make a small change
-3. Push and create a PR
-4. Review the Terraform plan in PR comments
-5. Merge to main to apply changes
-
-## Common Commands
-
-### Format code
 ```bash
-./scripts/format.sh
+aws lambda invoke \
+  --function-name tag-reconciler \
+  /tmp/output.json
 ```
 
-### Deploy a specific stack
-```bash
-# Plan
-./scripts/deploy.sh <env> <stack> plan
+## 🛠️ Development Workflow
 
-# Apply
-./scripts/deploy.sh <env> <stack> apply
+1. Tạo feature branch
+2. Thêm/sửa Terraform code
+3. Test local: `terraform plan`
+4. Push lên GitHub
+5. GitHub Actions tự động apply
+6. Lambda reconcile tags sau 6h (hoặc trigger manual)
+
+## 📝 Best Practices
+
+✅ Luôn dùng module `appregistry-application`  
+✅ Merge `application_tag` vào mọi resource  
+✅ Backend state được encrypt & version  
+✅ Dùng OIDC thay vì static credentials  
+✅ Config Recorder trong mỗi account  
+✅ Review plan trước khi apply  
+✅ Tag đầy đủ theo policy  
+
+## 🐛 Troubleshooting
+
+### State lock error:
+
+```bash
+# Xoá lock (CHỈ khi chắc chắn không có apply đang chạy)
+aws dynamodb delete-item \
+  --table-name terraform-state-lock \
+  --key '{"LockID": {"S": "terraform-state/path/to/state"}}'
 ```
 
-### Check current state
+### Tag không sync với AppRegistry:
+
 ```bash
-cd stacks/<stack>
-terraform init -backend-config=../../envs/<env>/backend.hcl
-terraform show
+# Trigger manual
+aws lambda invoke \
+  --function-name tag-reconciler \
+  /tmp/output.json
+
+# Xem logs
+aws logs tail /aws/lambda/tag-reconciler --follow
 ```
 
-### Import existing resources
+### Resource Explorer không index:
+
 ```bash
-cd stacks/<stack>
-terraform init -backend-config=../../envs/<env>/backend.hcl
-terraform import -var-file=../../envs/<env>/stacks/<stack>/vars.tfvars <resource_type>.<resource_name> <resource_id>
+# Check index status
+aws resource-explorer-2 get-index
+
+# Update index
+aws resource-explorer-2 update-index-type --arn <arn> --type AGGREGATOR
 ```
 
-## Troubleshooting
+## 📚 Next Steps
 
-### State Lock Issues
-```bash
-# If state is locked, you may need to force unlock:
-terraform force-unlock <LOCK_ID>
-```
+1. Customize modules trong `terraform/modules/`
+2. Thêm applications trong `envs/{env}/apps/`
+3. Setup monitoring & alerting
+4. Implement cost optimization
+5. Add compliance checks
 
-### Backend Migration
-```bash
-# If you need to migrate backend:
-terraform init -migrate-state -backend-config=../../envs/<env>/backend.hcl
-```
+---
 
-### Plan Differences
-```bash
-# To see detailed diff:
-terraform plan -var-file=../../envs/<env>/stacks/<stack>/vars.tfvars -out=tfplan
-terraform show -json tfplan | jq
-```
-
-## Security Best Practices
-
-1. **Never commit sensitive data**
-   - Use `.gitignore` for `.tfvars` files with secrets
-   - Use AWS Secrets Manager or Parameter Store for secrets
-
-2. **Enable MFA for critical roles**
-   - Require MFA for production deployments
-
-3. **Review all changes**
-   - Always review Terraform plans before applying
-   - Use PR reviews for all changes
-
-4. **Monitor and audit**
-   - Review CloudTrail logs regularly
-   - Set up AWS Config rules
-   - Enable GuardDuty
-
-## Next Steps
-
-1. Deploy to staging environment
-2. Deploy to production environment
-3. Set up monitoring and alerting
-4. Configure backup and disaster recovery
-5. Document runbooks for common operations
+**Need help?** Check `terraform/README.md` for detailed architecture.
