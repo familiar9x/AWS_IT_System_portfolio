@@ -1,0 +1,6 @@
+# Example variables for Backend
+# Copy và đổi tên thành terraform.tfvars, điều chỉnh theo AWS account của bạn
+
+state_bucket_name    = "my-terraform-state-123456789012"
+dynamodb_table_name  = "terraform-state-lock"
+region               = "us-east-1"

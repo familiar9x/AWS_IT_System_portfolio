@@ -1,0 +1,23 @@
+# Example variables for AppRegistry Catalog
+# Copy và đổi tên thành terraform.tfvars, điều chỉnh theo systems của bạn
+
+portfolio_name = "it-system-portfolio"
+region         = "us-east-1"
+
+systems = [
+  {
+    name        = "webportal"
+    description = "Web Portal Application"
+    environments = ["dev", "stg", "prod"]
+  },
+  {
+    name        = "api-service"
+    description = "REST API Service"
+    environments = ["dev", "stg", "prod"]
+  },
+  {
+    name        = "data-pipeline"
+    description = "Data Processing Pipeline"
+    environments = ["dev", "prod"]
+  }
+]

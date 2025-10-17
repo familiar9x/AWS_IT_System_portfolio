@@ -47,3 +47,40 @@ resource "aws_servicecatalogappregistry_attribute_group_association" "classifica
   application = aws_servicecatalogappregistry_application.system_catalog.id
   attribute_group = aws_servicecatalogappregistry_attribute_group.classification.id
 }
+
+# Create AppRegistry Applications for each system-environment
+locals {
+  # Flatten systems and environments into a map
+  system_envs = merge([
+    for system in var.systems : {
+      for env in system.environments :
+      "${system.name}-${env}" => {
+        system_name = system.name
+        environment = env
+        description = system.description
+      }
+    }
+  ]...)
+}
+
+resource "aws_servicecatalogappregistry_application" "system_apps" {
+  for_each = local.system_envs
+
+  name        = each.key  # e.g., "webportal-dev"
+  description = "${each.value.description} - ${upper(each.value.environment)} Environment"
+
+  tags = {
+    Name        = each.key
+    System      = each.value.system_name
+    Environment = each.value.environment
+    ManagedBy   = "Terraform"
+  }
+}
+
+# Associate each system app with the classification attribute group
+resource "aws_servicecatalogappregistry_attribute_group_association" "system_apps" {
+  for_each = aws_servicecatalogappregistry_application.system_apps
+
+  application     = each.value.id
+  attribute_group = aws_servicecatalogappregistry_attribute_group.classification.id
+}

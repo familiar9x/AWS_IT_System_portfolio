@@ -1,0 +1,6 @@
+# Example variables for Config Recorder
+# Copy và điều chỉnh theo AWS account của bạn
+
+config_bucket_name = "my-aws-config-logs-123456789012"
+region             = "us-east-1"
+enable_all_regions = false

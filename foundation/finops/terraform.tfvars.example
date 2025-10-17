@@ -1,0 +1,8 @@
+# Example variables for FinOps
+# Copy và điều chỉnh theo AWS account của bạn
+
+cur_bucket_name        = "my-cost-usage-reports-123456789012"
+cloudtrail_bucket_name = "my-cloudtrail-logs-123456789012"
+region                 = "us-east-1"
+enable_cloudtrail      = true
+enable_cur             = true
