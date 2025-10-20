@@ -2,7 +2,7 @@
 
 ## 📋 Overview
 
-Dev environment dùng để **test pipeline, validate tagging, Terraform modules, AppRegistry và CI/CD** trước khi deploy lên staging/production.
+Dev environment dùng để **test pipeline, validate tagging, Terraform modules, AppRegistry và CI/CD** trước khi deploy lên stg/production.
 
 ## 🏗️ Architecture
 
@@ -288,7 +288,7 @@ jobs:
 - Enable auto-stop for non-24/7 resources
 - Use Aurora Serverless for databases
 - Use Lambda instead of ECS when possible
-- Test tagging compliance before promoting to staging
+- Test tagging compliance before promoting to stg
 - Use Terraform workspaces for quick testing
 
 ### ❌ DON'T

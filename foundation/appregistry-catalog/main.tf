@@ -50,11 +50,11 @@ resource "aws_servicecatalogappregistry_attribute_group_association" "classifica
 
 # Create AppRegistry Applications for each system-environment
 locals {
-  # Flatten systems and environments into a map
+  # Flatten systems and environments into a map with format: {environment}-{system}
   system_envs = merge([
     for system in var.systems : {
       for env in system.environments :
-      "${system.name}-${env}" => {
+      "${env}-${system.name}" => {  # Changed to: environment-system
         system_name = system.name
         environment = env
         description = system.description
@@ -66,7 +66,7 @@ locals {
 resource "aws_servicecatalogappregistry_application" "system_apps" {
   for_each = local.system_envs
 
-  name        = each.key  # e.g., "webportal-dev"
+  name        = each.key  # e.g., "dev-webportal"
   description = "${each.value.description} - ${upper(each.value.environment)} Environment"
 
   tags = {

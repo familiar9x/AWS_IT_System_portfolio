@@ -1,608 +1,911 @@
-# Terrafrom_AWS_IT_System_portfolio
-# 🏗️Terrafrom_AWS_IT_System_portfolio — Terraform Infrastructure Platform (Multi-Account / Multi-Environment)
+# Terraform Best Practices - AWS IT System Portfolio
 
-## 📌 Giới thiệu
-
-Đây là bộ mã hạ tầng nền (platform infrastructure) dùng để triển khai **các thành phần chung cho toàn tổ chức trên AWS**, theo mô hình **multi-account** và **multi-environment** (dev / staging / prod).  
-
-Mục tiêu:
-- Thiết lập khung quản trị AWS Organizations / Control Tower cơ bản.  
-- Cung cấp các dịch vụ chung: VPC shared, logging, observability, tagging policies, AWS Config aggregator, AppRegistry.  
-- Làm nền để các team ứng dụng chỉ cần triển khai workload mà không phải tái dựng network, logging, guardrails mỗi nơi.
-
-Toàn bộ hạ tầng được quản lý bằng **Terraform**, CI/CD bằng **GitHub Actions + OIDC → AssumeRole** (không dùng access key dài hạn).
+> 📘 **Comprehensive guide** cho Terraform Infrastructure as Code với Single Account Multi-Environment pattern
 
 ---
 
-## 🧠 Triết lý thiết kế
+## 📌 Overview
 
-- **Tách rõ code & environment**  
-  - `stacks/<stack>` chứa logic hạ tầng (root module)  
-  - `envs/<env>/stacks/<stack>/vars.tfvars` chứa thông số môi trường (input)  
-  - `envs/<env>/backend.hcl` chứa backend config riêng cho mỗi environment
+Dự án này sử dụng **Single AWS Account** với **tag-based environment separation** (dev/stg/prod), kết hợp với:
 
-- **Mỗi stack = 1 state riêng**  
-  → Dễ rollback, CI/CD nhanh, scope thay đổi nhỏ, tách quyền rõ ràng.
-
-- **Môi trường độc lập (dev / staging / prod)**  
-  → Backend + var file riêng → không bao giờ trộn state giữa môi trường.
-
-- **IaC-first / GitOps**  
-  → Không clickops thủ công ở prod. Mọi thay đổi hạ tầng thông qua PR + pipeline.
+- **Foundation Layer**: Shared infrastructure (Backend, IAM OIDC, Organizations, AppRegistry, Config)
+- **Environment Layers**: Isolated environments (dev/stg/prod) với platform + applications
+- **CMDB Automation**: Auto-discovery qua AppRegistry + Lambda Tag Reconciler
+- **GitOps CI/CD**: GitHub Actions với OIDC (no static credentials)
 
 ---
 
-## 📂 Cấu trúc thư mục
+## 🏗️ Architecture Pattern
 
-iac-platform/
-├─ modules/ # Module nội bộ tái sử dụng
-│ ├─ network_shared/
-│ ├─ logging_org_trail/
-│ ├─ config_aggregator/
-│ ├─ tagging_policies/
-│ └─ appregistry/
-│
-├─ stacks/ # Mỗi thư mục = 1 stack (root module / state)
-│ ├─ landing-zone/ # Organizations, OU, SCP, Tag Policies
-│ ├─ network/ # VPC hub, endpoints, TGW
-│ ├─ logging/ # S3 log archive, CloudTrail org trail
-│ ├─ observability/ # CloudWatch, OpenSearch, Grafana
-│ └─ config-aggregator/ # AWS Config aggregator toàn org
-│
-├─ envs/ # Config theo từng môi trường
-│ ├─ dev/
-│ │ ├─ backend.hcl
-│ │ └─ stacks/<stack>/vars.tfvars
-│ ├─ staging/
-│ │ ├─ backend.hcl
-│ │ └─ stacks/<stack>/vars.tfvars
-│ └─ prod/
-│ ├─ backend.hcl
-│ └─ stacks/<stack>/vars.tfvars
-│
-├─ .github/
-│ └─ workflows/
-│ └─ platform-apply.yml # CI/CD apply theo matrix env/stack
-│
-└─ README.md
+### Single Account Multi-Environment
 
-r
-Sao chép mã
+```
+AWS Account (Single)
+├── Foundation Layer (deploy once)
+│   ├── Backend (S3 + DynamoDB + KMS)
+│   ├── IAM OIDC (GitHub trust)
+│   ├── Organizations (Tag Policies, SCPs)
+│   ├── AppRegistry (System catalog)
+│   ├── Config (Recorder + Aggregator)
+│   ├── Resource Explorer (Org-wide index)
+│   ├── Tag Reconciler (Lambda 6h schedule)
+│   └── FinOps (CUR, CloudTrail, Glue)
+│
+├── Dev Environment (tag: Environment=dev)
+│   ├── Platform (VPC, IAM, Secrets)
+│   └── Applications (dev-webportal, dev-backoffice)
+│
+├── stg Environment (tag: Environment=stg)
+│   ├── Platform
+│   └── Applications (stg-webportal, stg-backoffice)
+│
+└── Production Environment (tag: Environment=prod)
+    ├── Platform
+    └── Applications (prod-webportal, prod-backoffice)
+```
+
+**Key Benefits:**
+- ✅ Cost-effective (1 account instead of 3)
+- ✅ Simplified management
+- ✅ Tag-based resource isolation
+- ✅ Shared foundation infrastructure
+- ✅ Easy to migrate to multi-account later
 
 ---
 
-## 📜 Naming & Tagging
+## 📂 Directory Structure
 
-### 🏷️ **Tagging bắt buộc** (theo Tag Policy)
-| Key            | Mô tả                           | Ví dụ |
-|---------------|----------------------------------|-------|
-| `Application` | Tên ứng dụng hoặc module        | `network-shared` |
-| `awsApplication` | ARN/tên AppRegistry Application | `arn:aws:...` |
-| `Environment` | dev / stg / prod                | `prod` |
-| `System`      | Tên hệ thống                    | `webportal` |
-| `Owner`       | Email hoặc team phụ trách      | `team-app@company.com` |
-| `CostCenter`  | Mã phòng ban                   | `PLT-001` |
-| `BusinessUnit`| Đơn vị nghiệp vụ               | `Securities` |
-| `ManagedBy`   | Công cụ quản lý                | `IaC-Terraform` |
-| `DataClass`   | Phân loại dữ liệu              | `Internal` |
-| `Criticality` | Mức độ quan trọng              | `High` |
-| `DRTier`      | Mức độ DR                     | `Gold` |
+### Current Project Structure
 
-### 📛 **Naming convention**
-**Format:** `<environment>-<system>[-<component>]`
+```
+.
+├── foundation/                    # Foundation Layer (deploy once)
+│   ├── backend/                   # S3 + DynamoDB + KMS for Terraform state
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   ├── outputs.tf
+│   │   └── terraform.tfvars
+│   │
+│   ├── iam-oidc/                  # GitHub OIDC provider
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   ├── outputs.tf
+│   │   └── terraform.tfvars
+│   │
+│   ├── org-governance/            # Organizations, Tag Policies, SCPs
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── terraform.tfvars
+│   │
+│   ├── appregistry-catalog/       # AppRegistry Applications
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── terraform.tfvars
+│   │
+│   ├── config-recorder/           # AWS Config Recorder
+│   ├── config-aggregator/         # Config Aggregator
+│   ├── resource-explorer/         # Resource Explorer Index
+│   ├── tag-reconciler/            # Lambda auto-sync
+│   ├── finops/                    # CUR, CloudTrail, Glue
+│   └── deploy.sh                  # Automated deployment
+│
+├── envs/                          # Environment-specific configs
+│   ├── dev/
+│   │   ├── backend.hcl            # Backend config for dev
+│   │   ├── terraform.tfvars       # Global vars for dev
+│   │   │
+│   │   ├── platform/
+│   │   │   ├── network-stack/     # VPC, Subnets, NAT, SG
+│   │   │   │   ├── main.tf
+│   │   │   │   ├── variables.tf
+│   │   │   │   ├── outputs.tf
+│   │   │   │   ├── backend.tf
+│   │   │   │   └── terraform.tfvars
+│   │   │   │
+│   │   │   └── iam-secrets/       # IAM Roles, Secrets Manager
+│   │   │       ├── main.tf
+│   │   │       ├── variables.tf
+│   │   │       └── terraform.tfvars
+│   │   │
+│   │   ├── apps/
+│   │   │   ├── webportal/         # ECS Fargate + ALB + Aurora
+│   │   │   │   ├── main.tf
+│   │   │   │   ├── variables.tf
+│   │   │   │   ├── outputs.tf
+│   │   │   │   ├── backend.tf
+│   │   │   │   ├── terraform.tfvars
+│   │   │   │   └── README.md
+│   │   │   │
+│   │   │   └── backoffice/        # Lambda + API Gateway + DynamoDB
+│   │   │       ├── main.tf
+│   │   │       ├── variables.tf
+│   │   │       └── terraform.tfvars
+│   │   │
+│   │   ├── config-recorder/       # Local Config Recorder
+│   │   ├── observability/         # CloudWatch, X-Ray
+│   │   └── deploy.sh
+│   │
+│   ├── stg/ (same structure as dev)
+│   └── prod/ (same structure as dev)
+│
+├── modules/                       # Reusable Terraform modules
+│   ├── appregistry/
+│   ├── config_aggregator/
+│   ├── logging_org_trail/
+│   ├── network_shared/
+│   └── tagging_policies/
+│
+├── scripts/
+│   ├── deploy.sh
+│   └── format.sh
+│
+└── README.md
+```
 
-**Ví dụ:**
-- **VPC:** `dev-network`, `stg-network`, `prod-network`
-- **AppRegistry Application:** `webportal-dev`, `webportal-stg`, `webportal-prod`
-- **S3 Bucket:** `dev-webportal-assets`, `prod-webportal-logs`
-- **RDS:** `dev-webportal-db`, `stg-webportal-db`, `prod-webportal-db`
-- **Lambda:** `dev-api-processor`, `prod-api-processor`
+---
 
-### 🎯 **Tag Standard cho Single Account với Multi-Environment**
+## 🎯 Design Principles
 
-Khi deploy nhiều môi trường (dev/stg/prod) trong **cùng 1 AWS account**, tags giúp phân biệt rõ ràng:
+### 1. Foundation Layer (Deploy Once)
+
+**Purpose**: Shared infrastructure across all environments
+
+**Components**:
+- Backend: Terraform state management
+- IAM OIDC: CI/CD authentication
+- Organizations: Governance policies
+- AppRegistry: System catalog
+- Config/Explorer: Resource discovery
+- Tag Reconciler: CMDB automation
+- FinOps: Cost tracking
+
+**Deployment**: Manual, one-time only
+
+```bash
+cd foundation
+./deploy.sh
+```
+
+### 2. Environment Layer (Per Environment)
+
+**Purpose**: Isolated environments with shared pattern
+
+**Components**:
+- Platform: Network (VPC), IAM, Secrets
+- Applications: Business workloads
+- Config: Local recorder
+- Observability: Monitoring
+
+**Deployment**: Repeatable across dev/stg/prod
+
+```bash
+cd envs/dev
+./deploy.sh
+```
+
+### 3. State Management
+
+**Strategy**: One S3 bucket with prefix-based isolation
+
+```
+my-terraform-state/
+├── foundation/
+│   ├── backend/terraform.tfstate
+│   ├── iam-oidc/terraform.tfstate
+│   └── appregistry-catalog/terraform.tfstate
+│
+├── dev/
+│   ├── platform/network/terraform.tfstate
+│   ├── platform/iam-secrets/terraform.tfstate
+│   ├── apps/webportal/terraform.tfstate
+│   └── apps/backoffice/terraform.tfstate
+│
+├── stg/
+│   └── ... (same structure)
+│
+└── prod/
+    └── ... (same structure)
+```
+
+**Backend Config**:
 
 ```hcl
-# Ví dụ: Dev Environment
+# envs/dev/backend.hcl
+bucket         = "my-terraform-state"
+key            = "dev/platform/network/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "terraform-state-lock"
+encrypt        = true
+kms_key_id     = "alias/terraform-state"
+```
+
+---
+
+## 🏷️ Tagging Strategy
+
+### Required Tags (Tag Policy Enforced)
+
+| Tag Key | Description | Example | Required |
+|---------|-------------|---------|----------|
+| `Environment` | Environment name | `dev`, `stg`, `prod` | ✅ Yes |
+| `System` | System/Application name | `webportal`, `backoffice` | ✅ Yes |
+| `Owner` | Team email | `team-app@company.com` | ✅ Yes |
+| `awsApplication` | AppRegistry ARN | `arn:aws:servicecatalog:...` | ✅ Yes |
+| `ManagedBy` | Management tool | `Terraform` | ✅ Yes |
+| `CostCenter` | Cost center code | `CC-001` | ✅ Yes |
+| `Criticality` | Business criticality | `Low`, `Medium`, `High`, `Critical` | ✅ Yes |
+| `AutoStop` | Auto-stop enabled | `true`, `false` | ⚠️ Optional |
+
+### Tagging Examples
+
+**Dev Environment:**
+```hcl
 tags = {
   Environment     = "dev"
   System          = "webportal"
-  Owner           = "team-app"
-  awsApplication  = "arn:aws:servicecatalog:us-east-1:123456789012:/applications/xxxxx"  # ARN của webportal-dev
+  Owner           = "team-app@company.com"
+  awsApplication  = "arn:aws:servicecatalog:us-east-1:ACCOUNT:application/dev-webportal"
   ManagedBy       = "Terraform"
   CostCenter      = "CC-001"
+  Criticality     = "Medium"
+  AutoStop        = "true"  # Cost optimization
 }
+```
 
-# Ví dụ: Production Environment
+**Production Environment:**
+```hcl
 tags = {
   Environment     = "prod"
   System          = "webportal"
-  Owner           = "team-app"
-  awsApplication  = "arn:aws:servicecatalog:us-east-1:123456789012:/applications/yyyyy"  # ARN của webportal-prod
+  Owner           = "team-app@company.com"
+  awsApplication  = "arn:aws:servicecatalog:us-east-1:ACCOUNT:application/webportal-prod"
   ManagedBy       = "Terraform"
   CostCenter      = "CC-001"
+  Criticality     = "Critical"
+  AutoStop        = "false"  # Always running
 }
 ```
 
-👉 **Lợi ích:** AppRegistry & Resource Explorer tự động phân nhóm tài nguyên theo "môi trường ảo" dựa trên tags này
-
----
-
-## 🗂️ Terraform Backend Strategy (Single Account)
-
-### 📦 **Backend Configuration cho Multi-Environment trong 1 Account**
-
-Sử dụng **1 S3 bucket + 1 DynamoDB table** cho tất cả state files, phân biệt bằng `key` prefix:
+### Tag Usage in Terraform
 
 ```hcl
-# backend.tf trong mỗi stack
-terraform {
-  backend "s3" {
-    bucket         = "my-terraform-state"
-    key            = "dev/network/terraform.tfstate"    # dev/stg/prod/<stack>/terraform.tfstate
-    region         = "us-east-1"
-    dynamodb_table = "terraform-state-lock"
-    encrypt        = true
-    kms_key_id     = "alias/terraform-state"
-  }
-}
-```
-
-**Cấu trúc S3 state files:**
-```
-my-terraform-state/
-├── dev/
-│   ├── network/terraform.tfstate
-│   ├── webportal-app/terraform.tfstate
-│   └── webportal-db/terraform.tfstate
-├── stg/
-│   ├── network/terraform.tfstate
-│   └── webportal-app/terraform.tfstate
-└── prod/
-    ├── network/terraform.tfstate
-    └── webportal-app/terraform.tfstate
-```
-
-**Lợi ích:**
-- ✅ Quản lý tập trung trong 1 account
-- ✅ State isolation rõ ràng giữa các môi trường
-- ✅ Dễ backup và versioning
-- ✅ Cost-effective (không cần nhiều account)
-
----
-
-## 🧰 Lệnh cơ bản
-
-### 📌 Init + Plan + Apply thủ công (VD: stack network, env dev)
-```bash
-cd stacks/network
-terraform init -backend-config=../../envs/dev/backend.hcl
-terraform plan  -var-file=../../envs/dev/stacks/network/vars.tfvars
-terraform apply -auto-approve -var-file=../../envs/dev/stacks/network/vars.tfvars
-```
-❗ Mỗi stack cần chạy riêng, không dùng terraform apply cho toàn repo.
-
-🔐 CI/CD Pipeline (GitHub Actions + OIDC)
-File: .github/workflows/platform-apply.yml
-
-Tự động chạy theo matrix: env = [dev, staging, prod] × stack = [landing-zone, network, ...]
-
-Mỗi env có Role ARN riêng → cấu hình trong GitHub Environment Secrets
-
-Trust policy AWS IAM ràng buộc repo:<ORG>/<REPO>:ref:refs/heads/main
-
-Mẫu step:
-
-yaml
-Sao chép mã
-- uses: aws-actions/configure-aws-credentials@v4
-  with:
-    role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-    aws-region: us-east-1
-🌍 Mối quan hệ các stack (Triển khai tuần tự)
-pgsql
-Sao chép mã
-landing-zone   → tagging_policies
-       ↓
-   network (shared)
-       ↓
- logging_org_trail  →  config-aggregator
-       ↓
-  observability
-landing-zone: khởi tạo OU, SCP, Tag Policy → chạy đầu tiên ở management account
-
-network: dựng VPC hub & endpoints trong network account
-
-logging + config-aggregator: bật CloudTrail Org, AWS Config aggregator ở log/security account
-
-observability: triển khai OpenSearch, CloudWatch central
-
-📝 Quy trình thêm một stack mới
-Tạo thư mục mới trong stacks/<new-stack>
-
-Viết code Terraform như root module (main.tf, variables.tf, providers.tf…)
-
-Tạo vars.tfvars trong envs/dev/stacks/<new-stack>/ (và staging/prod nếu cần)
-
-Cập nhật pipeline (nếu muốn auto-run) → thêm vào matrix.stack
-
-Apply dev → staging → prod theo thứ tự
-
-🌐 Quy trình thêm môi trường mới
-Tạo envs/<new-env>
-
-Copy backend.hcl và stacks/*/vars.tfvars phù hợp
-
-Tạo IAM Role deploy tương ứng với trust OIDC
-
-Thêm <new-env> vào matrix trong pipeline CI/CD
-
-## 📎 AWS Config + Resource Explorer (Single Account Setup)
-
-### 🔍 **AWS Config Recorder**
-
-Bật **1 Config Recorder** trong account để quét toàn bộ resources:
-
-```hcl
-resource "aws_config_configuration_recorder" "main" {
-  name     = "main-config-recorder"
-  role_arn = aws_iam_role.config.arn
-
-  recording_group {
-    all_supported                 = true
-    include_global_resource_types = true
-  }
-}
-```
-
-- ✅ Quét tất cả resources trong tất cả regions
-- ✅ Không cần Config Aggregator (vì chỉ có 1 account)
-- ✅ Track changes cho dev/stg/prod resources
-
-### 🌐 **Resource Explorer**
-
-Tạo **1 Resource Explorer Index (Aggregator)** cho toàn account:
-
-```hcl
-resource "aws_resourceexplorer2_index" "main" {
-  type = "AGGREGATOR"
-  
-  tags = {
-    Name = "Main Resource Explorer"
+# Use locals for common tags
+locals {
+  common_tags = {
+    Environment    = var.environment
+    System         = var.system
+    Owner          = var.owner
+    ManagedBy      = "Terraform"
+    CostCenter     = var.cost_center
   }
 }
 
-resource "aws_resourceexplorer2_view" "by_environment" {
-  name = "by-environment-view"
-  
-  included_property {
-    name = "tags"
-  }
-  
-  filters {
-    filter_string = "tag.key:Environment"
-  }
-}
-```
-
-**Query examples:**
-```bash
-# Tìm tất cả resources của dev environment
-aws resource-explorer-2 search --query-string "tag:Environment=dev"
-
-# Tìm tất cả resources của webportal system
-aws resource-explorer-2 search --query-string "tag:System=webportal"
-
-# Tìm prod resources của webportal
-aws resource-explorer-2 search --query-string "tag:Environment=prod tag:System=webportal"
-```
-
----
-
-## 🏢 AppRegistry Strategy (Single Account với Multi-Environment)
-
-### 📋 **Tạo Multiple Applications cho mỗi Environment**
-
-Trong **cùng 1 account**, tạo nhiều AppRegistry Applications, mỗi cái ứng với `environment + system`:
-
-```hcl
-# Dev Environment
-resource "aws_servicecatalogappregistry_application" "webportal_dev" {
-  name        = "webportal-dev"
-  description = "WebPortal Application - Development Environment"
-  
-  tags = {
-    Environment = "dev"
-    System      = "webportal"
-    Owner       = "team-app"
-  }
-}
-
-# Staging Environment
-resource "aws_servicecatalogappregistry_application" "webportal_stg" {
-  name        = "webportal-stg"
-  description = "WebPortal Application - Staging Environment"
-  
-  tags = {
-    Environment = "stg"
-    System      = "webportal"
-    Owner       = "team-app"
-  }
-}
-
-# Production Environment
-resource "aws_servicecatalogappregistry_application" "webportal_prod" {
-  name        = "webportal-prod"
-  description = "WebPortal Application - Production Environment"
-  
-  tags = {
-    Environment = "prod"
-    System      = "webportal"
-    Owner       = "team-app"
-  }
-}
-```
-
-### 🏷️ **Auto-Associate Resources với Tags**
-
-Khi deploy bất kỳ resource nào (EC2, RDS, Lambda...), gắn tag `awsApplication` với ARN tương ứng:
-
-```hcl
-# Ví dụ: EC2 instance cho dev environment
+# Merge with AppRegistry tag
 resource "aws_instance" "app" {
-  ami           = "ami-xxxxx"
-  instance_type = "t3.medium"
+  ami           = var.ami_id
+  instance_type = var.instance_type
   
+  tags = merge(
+    local.common_tags,
+    {
+      Name            = "${var.environment}-${var.system}-app"
+      awsApplication  = data.terraform_remote_state.appregistry.outputs.application_arn
+    }
+  )
+}
+```
+
+---
+
+## 📛 Naming Convention
+
+### Format
+
+```
+<environment>-<system>-<component>
+```
+
+### Examples by Resource Type
+
+| Resource | Dev | stg | Production |
+|----------|-----|---------|------------|
+| **VPC** | `dev-network` | `stg-network` | `prod-network` |
+| **Subnet** | `dev-public-1a` | `stg-public-1a` | `prod-public-1a` |
+| **Security Group** | `dev-webportal-alb-sg` | `stg-webportal-alb-sg` | `prod-webportal-alb-sg` |
+| **ECS Cluster** | `dev-cluster` | `stg-cluster` | `prod-cluster` |
+| **ECS Service** | `dev-webportal` | `stg-webportal` | `prod-webportal` |
+| **ALB** | `dev-webportal-alb` | `stg-webportal-alb` | `prod-webportal-alb` |
+| **RDS** | `dev-webportal-db` | `stg-webportal-db` | `prod-webportal-db` |
+| **Lambda** | `dev-backoffice-api` | `stg-backoffice-api` | `prod-backoffice-api` |
+| **DynamoDB** | `dev-backoffice-data` | `stg-backoffice-data` | `prod-backoffice-data` |
+| **S3 Bucket** | `dev-webportal-assets-ACCOUNT` | `stg-webportal-assets-ACCOUNT` | `prod-webportal-assets-ACCOUNT` |
+| **IAM Role** | `dev-webportal-ecs-task` | `stg-webportal-ecs-task` | `prod-webportal-ecs-task` |
+| **AppRegistry** | `dev-webportal` | `webportal-stg` | `webportal-prod` |
+
+**Note**: S3 bucket names must be globally unique, include account ID
+
+---
+
+## 🔐 Backend Configuration
+
+### S3 Backend Setup
+
+```hcl
+# foundation/backend/main.tf
+resource "aws_s3_bucket" "terraform_state" {
+  bucket = "mycompany-terraform-state-${data.aws_caller_identity.current.account_id}"
+
   tags = {
-    Name            = "dev-webportal-app"
-    Environment     = "dev"
-    System          = "webportal"
-    Owner           = "team-app"
-    awsApplication  = aws_servicecatalogappregistry_application.webportal_dev.arn
-    ManagedBy       = "Terraform"
+    Name        = "Terraform State Bucket"
+    Purpose     = "Terraform State Storage"
+    ManagedBy   = "Terraform"
   }
 }
 
-# Ví dụ: RDS cho production
-resource "aws_db_instance" "prod_db" {
-  identifier     = "prod-webportal-db"
-  engine         = "postgres"
-  instance_class = "db.t3.large"
-  
+resource "aws_s3_bucket_versioning" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.terraform_state.arn
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_dynamodb_table" "terraform_lock" {
+  name         = "terraform-state-lock"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "LockID"
+
+  attribute {
+    name = "LockID"
+    type = "S"
+  }
+
   tags = {
-    Name            = "prod-webportal-db"
-    Environment     = "prod"
-    System          = "webportal"
-    Owner           = "team-app"
-    awsApplication  = aws_servicecatalogappregistry_application.webportal_prod.arn
-    ManagedBy       = "Terraform"
+    Name      = "Terraform State Lock"
+    Purpose   = "Terraform State Locking"
+    ManagedBy = "Terraform"
   }
 }
 ```
 
-### 🤖 **Tag Reconciler Lambda**
+### Backend Config Per Environment
 
-Lambda tự động quét và associate resources với AppRegistry:
+```hcl
+# envs/dev/backend.hcl
+bucket         = "mycompany-terraform-state-123456789012"
+key            = "dev/apps/webportal/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "terraform-state-lock"
+encrypt        = true
+kms_key_id     = "alias/terraform-state"
+
+# envs/stg/backend.hcl
+bucket         = "mycompany-terraform-state-123456789012"
+key            = "stg/apps/webportal/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "terraform-state-lock"
+encrypt        = true
+kms_key_id     = "alias/terraform-state"
+
+# envs/prod/backend.hcl
+bucket         = "mycompany-terraform-state-123456789012"
+key            = "prod/apps/webportal/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "terraform-state-lock"
+encrypt        = true
+kms_key_id     = "alias/terraform-state"
+```
+
+### Usage in Terraform
+
+```hcl
+# backend.tf in each stack
+terraform {
+  backend "s3" {}  # Config loaded from backend.hcl
+}
+
+# Initialize with backend config
+terraform init -backend-config=../../backend.hcl
+```
+
+---
+
+## 🔄 Terraform Commands
+
+### Basic Workflow
+
+```bash
+# 1. Initialize (load backend config)
+terraform init -backend-config=../../backend.hcl
+
+# 2. Format code
+terraform fmt -recursive
+
+# 3. Validate
+terraform validate
+
+# 4. Plan
+terraform plan -var-file=terraform.tfvars -out=tfplan
+
+# 5. Apply
+terraform apply tfplan
+
+# 6. Show outputs
+terraform output
+
+# 7. Destroy (careful!)
+terraform destroy -var-file=terraform.tfvars
+```
+
+### Environment-Specific Commands
+
+```bash
+# Deploy to dev
+cd envs/dev/apps/webportal
+terraform init -backend-config=../../backend.hcl
+terraform apply -var-file=terraform.tfvars
+
+# Deploy to stg
+cd envs/stg/apps/webportal
+terraform init -backend-config=../../backend.hcl
+terraform apply -var-file=terraform.tfvars
+
+# Deploy to prod (with extra caution)
+cd envs/prod/apps/webportal
+terraform init -backend-config=../../backend.hcl
+terraform plan -var-file=terraform.tfvars  # Review carefully
+terraform apply -var-file=terraform.tfvars
+```
+
+---
+
+## 📦 Module Best Practices
+
+### Module Structure
+
+```
+modules/network_shared/
+├── main.tf          # Main resources
+├── variables.tf     # Input variables
+├── outputs.tf       # Output values
+├── versions.tf      # Terraform & provider versions
+├── locals.tf        # Local values (optional)
+└── README.md        # Module documentation
+```
+
+### Module Example
+
+```hcl
+# modules/network_shared/main.tf
+resource "aws_vpc" "main" {
+  cidr_block           = var.vpc_cidr
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.environment}-${var.name}"
+    }
+  )
+}
+
+# modules/network_shared/variables.tf
+variable "environment" {
+  description = "Environment name (dev/stg/prod)"
+  type        = string
+
+  validation {
+    condition     = contains(["dev", "stg", "prod"], var.environment)
+    error_message = "Environment must be dev, stg, or prod."
+  }
+}
+
+variable "vpc_cidr" {
+  description = "CIDR block for VPC"
+  type        = string
+
+  validation {
+    condition     = can(cidrhost(var.vpc_cidr, 0))
+    error_message = "Must be a valid IPv4 CIDR."
+  }
+}
+
+variable "tags" {
+  description = "Additional tags"
+  type        = map(string)
+  default     = {}
+}
+
+# modules/network_shared/outputs.tf
+output "vpc_id" {
+  description = "ID of the VPC"
+  value       = aws_vpc.main.id
+}
+
+output "vpc_cidr" {
+  description = "CIDR block of the VPC"
+  value       = aws_vpc.main.cidr_block
+}
+```
+
+### Module Usage
+
+```hcl
+# envs/dev/platform/network-stack/main.tf
+module "network" {
+  source = "../../../../modules/network_shared"
+
+  environment = "dev"
+  vpc_cidr    = "10.0.0.0/16"
+  
+  tags = {
+    System    = "platform"
+    Owner     = "infrastructure-team@company.com"
+    ManagedBy = "Terraform"
+  }
+}
+```
+
+---
+
+## 🤖 CMDB Automation
+
+### AppRegistry Strategy
+
+Create separate applications for each environment + system:
+
+```hcl
+# foundation/appregistry-catalog/main.tf
+locals {
+  systems      = ["webportal", "backoffice"]
+  environments = ["dev", "stg", "prod"]
+  
+  # Generate all combinations
+  applications = flatten([
+    for env in local.environments : [
+      for system in local.systems : {
+        name = "${env}-${system}"
+        env  = env
+        sys  = system
+      }
+    ]
+  ])
+}
+
+resource "aws_servicecatalogappregistry_application" "apps" {
+  for_each = { for app in local.applications : app.name => app }
+
+  name        = each.value.name
+  description = "${each.value.sys} application in ${each.value.env} environment"
+
+  tags = {
+    Environment = each.value.env
+    System      = each.value.sys
+    ManagedBy   = "Terraform"
+  }
+}
+```
+
+### Tag Reconciler Lambda
 
 ```python
-# Tự động associate resources dựa trên tag awsApplication
+# foundation/tag-reconciler/lambda/code.py
+import boto3
+import json
+from datetime import datetime
+
+resource_explorer = boto3.client('resource-explorer-2')
+appregistry = boto3.client('servicecatalog-appregistry')
+
 def lambda_handler(event, context):
-    # Query Resource Explorer
+    print(f"Starting tag reconciliation at {datetime.now()}")
+    
+    # Query all resources with awsApplication tag
     resources = resource_explorer.search(
         QueryString='tag.key:awsApplication'
     )
     
-    # Group by awsApplication tag
-    for resource in resources:
+    # Group by application
+    app_resources = {}
+    for resource in resources.get('Resources', []):
         app_arn = get_tag_value(resource, 'awsApplication')
-        app_name = extract_app_name(app_arn)  # e.g., webportal-dev
+        if app_arn:
+            app_name = extract_app_name(app_arn)
+            if app_name not in app_resources:
+                app_resources[app_name] = []
+            app_resources[app_name].append(resource)
+    
+    # Associate resources with AppRegistry
+    for app_name, resources in app_resources.items():
+        print(f"Processing {len(resources)} resources for {app_name}")
         
-        # Associate with AppRegistry
-        appregistry.associate_resource(
-            application=app_name,
-            resource=resource['Arn'],
-            resourceType='CFN_STACK'
-        )
+        for resource in resources:
+            try:
+                appregistry.associate_resource(
+                    application=app_name,
+                    resource=resource['Arn'],
+                    resourceType='CFN_STACK'
+                )
+                print(f"  ✓ Associated {resource['Arn']}")
+            except Exception as e:
+                print(f"  ✗ Failed to associate {resource['Arn']}: {e}")
+    
+    return {
+        'statusCode': 200,
+        'body': json.dumps(f"Processed {len(app_resources)} applications")
+    }
 ```
-
-👉 **Kết quả:** Mỗi Application trong AppRegistry sẽ tự động hiển thị tất cả resources của environment tương ứng → CMDB tự động!
 
 ---
 
-## 📊 Cost & Compliance
+## 🔐 Security Best Practices
 
-### 💰 **Cost Allocation**
-
-AWS Config + tags giúp theo dõi chi phí theo môi trường:
-
-```bash
-# Cost Explorer query
-aws ce get-cost-and-usage \
-  --time-period Start=2025-01-01,End=2025-01-31 \
-  --granularity MONTHLY \
-  --metrics UnblendedCost \
-  --group-by Type=TAG,Key=Environment
-
-# Kết quả:
-# dev:  $500
-# stg:  $300
-# prod: $2000
-```
-
-### ✅ **Compliance Checks**
-
-AWS Config Rules kiểm tra tags bắt buộc:
+### 1. IAM OIDC for GitHub Actions
 
 ```hcl
-resource "aws_config_config_rule" "required_tags" {
-  name = "required-tags-check"
+# foundation/iam-oidc/main.tf
+resource "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
 
-  source {
-    owner             = "AWS"
-    source_identifier = "REQUIRED_TAGS"
-  }
+  client_id_list = ["sts.amazonaws.com"]
 
-  input_parameters = jsonencode({
-    tag1Key = "Environment"
-    tag2Key = "System"
-    tag3Key = "Owner"
-    tag4Key = "awsApplication"
+  thumbprint_list = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1"
+  ]
+}
+
+resource "aws_iam_role" "github_terraform_deploy" {
+  name = "github-terraform-deploy"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.github.arn
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+        }
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = "repo:ORG/REPO:*"
+        }
+      }
+    }]
   })
 }
 ```
 
-CUR 2.0 (Data Exports) có thể thêm vào 1 stack riêng để theo dõi chi phí theo Application + Environment.
+### 2. Secrets Management
 
-Logging CloudTrail gửi logs về S3 bucket → phục vụ audit tập trung.
+```hcl
+# envs/dev/platform/iam-secrets/main.tf
+resource "aws_secretsmanager_secret" "db_password" {
+  name = "${var.environment}-${var.system}-db-password"
+  
+  recovery_window_in_days = 7
 
-## 🎯 Best Practices cho Single Account Multi-Environment
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.environment}-${var.system}-db-password"
+    }
+  )
+}
 
-### ✅ **DO's (Nên làm)**
+resource "aws_secretsmanager_secret_version" "db_password" {
+  secret_id     = aws_secretsmanager_secret.db_password.id
+  secret_string = random_password.db_password.result
+}
 
-1. ✅ **Phân biệt rõ ràng bằng naming convention**
-   - Resources: `dev-webportal-app`, `prod-webportal-db`
-   - AppRegistry: `webportal-dev`, `webportal-stg`, `webportal-prod`
-
-2. ✅ **Luôn tag đầy đủ**
-   - `Environment` = dev/stg/prod
-   - `System` = tên hệ thống
-   - `Owner` = team phụ trách
-   - `awsApplication` = ARN của AppRegistry Application
-
-3. ✅ **State isolation**
-   - Dùng prefix khác nhau: `dev/`, `stg/`, `prod/`
-   - 1 backend config cho mỗi môi trường
-
-4. ✅ **Security Groups & Network isolation**
-   - Tách VPC hoặc dùng Security Group riêng cho mỗi env
-   - Tag rõ ràng để dễ audit
-
-5. ✅ **Automation**
-   - Tag Reconciler Lambda chạy định kỳ
-   - Config Rules check compliance
-
-### ❌ **DON'Ts (Tránh làm)**
-
-1. ❌ **Không mix resources giữa các môi trường**
-   - Không để dev và prod dùng chung RDS
-   - Không để stg và prod dùng chung S3 bucket
-
-2. ❌ **Không bỏ qua tags**
-   - Mọi resource phải có tags đầy đủ
-   - Không có tag → không track được trong CMDB
-
-3. ❌ **Không dùng chung state file**
-   - Mỗi env phải có state riêng
-   - Tránh conflict và dễ rollback
-
-4. ❌ **Không hardcode environment values**
-   - Dùng variables và tfvars
-   - Tái sử dụng code cho nhiều môi trường
-
----
-
-## ⚡ Mẹo cho Copilot / AI Assistant
-
-Để Copilot hiểu repo này và hỗ trợ bạn tốt:
-
-1. Giữ README này ở root repo (Copilot sẽ ưu tiên đọc).
-
-2. Mỗi module/stack có file variables.tf + outputs.tf rõ ràng.
-
-3. Đặt tên biến nhất quán: `environment`, `system`, `region`, `*_id`.
-
-4. Thêm comment trong main.tf mô tả mục đích resource.
-
-5. Duy trì folder structure → Copilot dễ infer dependencies giữa stacks.
-
-6. Document tag strategy trong README → Copilot sẽ suggest đúng tags.
-
-## 🚀 Quick Start Guide (Single Account Multi-Environment)
-
-### Bước 1: Setup Backend Infrastructure
-```bash
-# Tạo S3 bucket cho state
-cd foundation/backend
-terraform init
-terraform apply
-
-# Output: bucket name và DynamoDB table
+resource "random_password" "db_password" {
+  length  = 32
+  special = true
+}
 ```
 
-### Bước 2: Tạo AppRegistry Applications
-```bash
-# Tạo Applications cho từng environment
-cd foundation/appregistry-catalog
-terraform init
-terraform apply
+### 3. KMS Encryption
 
-# Output: ARNs của webportal-dev, webportal-stg, webportal-prod
-```
+```hcl
+resource "aws_kms_key" "terraform_state" {
+  description             = "KMS key for Terraform state encryption"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
 
-### Bước 3: Setup Config & Resource Explorer
-```bash
-# Bật Config Recorder
-cd foundation/config-recorder
-terraform init
-terraform apply
+  tags = {
+    Name      = "terraform-state-key"
+    Purpose   = "Terraform State Encryption"
+    ManagedBy = "Terraform"
+  }
+}
 
-# Tạo Resource Explorer Index
-cd foundation/resource-explorer
-terraform init
-terraform apply
-```
-
-### Bước 4: Deploy Resources cho từng Environment
-```bash
-# Dev environment
-cd envs/dev/network
-terraform init -backend-config=backend.tf
-terraform apply -var="environment=dev"
-
-# Staging environment
-cd envs/stg/network
-terraform init -backend-config=backend.tf
-terraform apply -var="environment=stg"
-
-# Production environment
-cd envs/prod/network
-terraform init -backend-config=backend.tf
-terraform apply -var="environment=prod"
-```
-
-### Bước 5: Deploy Tag Reconciler Lambda
-```bash
-cd foundation/tag-reconciler
-terraform init
-terraform apply
-```
-
-### Bước 6: Verify CMDB
-```bash
-# Check AppRegistry
-aws servicecatalog-appregistry list-applications
-
-# Query resources by environment
-aws resource-explorer-2 search --query-string "tag:Environment=dev"
-aws resource-explorer-2 search --query-string "tag:Environment=prod"
-
-# Check AppRegistry associations
-aws servicecatalog-appregistry list-associated-resources \
-  --application webportal-dev
+resource "aws_kms_alias" "terraform_state" {
+  name          = "alias/terraform-state"
+  target_key_id = aws_kms_key.terraform_state.key_id
+}
 ```
 
 ---
 
-## 🚀 Next Steps
+## 💰 Cost Optimization
 
-- [ ] Điền các vars.tfvars thật theo tài khoản AWS của bạn
-- [ ] Tạo IAM role `terraform-deployer` với trust OIDC
-- [ ] Setup S3 backend bucket với versioning và encryption
-- [ ] Test deploy stack network ở dev trước
-- [ ] Verify tags và AppRegistry associations
-- [ ] Deploy staging environment
-- [ ] Deploy production với extra review
-- [ ] Khi stable, bật auto CI/CD
-- [ ] Setup CloudWatch alarms cho prod resources
-- [ ] Configure backup policies cho critical resources
+### Development Environment
+
+```hcl
+# Use cost-optimized resources in dev
+locals {
+  is_dev = var.environment == "dev"
+}
+
+# ECS Fargate Spot
+resource "aws_ecs_service" "app" {
+  capacity_provider_strategy {
+    capacity_provider = local.is_dev ? "FARGATE_SPOT" : "FARGATE"
+    weight            = 100
+  }
+  
+  # Smaller resources in dev
+  task_definition = local.is_dev ? aws_ecs_task_definition.app_small.arn : aws_ecs_task_definition.app_large.arn
+}
+
+# Lambda Arm64 (20% cheaper)
+resource "aws_lambda_function" "api" {
+  architectures = ["arm64"]  # Always use Arm64
+  memory_size   = local.is_dev ? 256 : 512
+}
+
+# Aurora Serverless v2
+resource "aws_rds_cluster" "main" {
+  engine_mode = "provisioned"
+  engine      = "aurora-mysql"
+
+  serverlessv2_scaling_configuration {
+    min_capacity = local.is_dev ? 0.5 : 1.0
+    max_capacity = local.is_dev ? 1.0 : 4.0
+  }
+}
+
+# DynamoDB on-demand (dev only)
+resource "aws_dynamodb_table" "data" {
+  billing_mode = local.is_dev ? "PAY_PER_REQUEST" : "PROVISIONED"
+  
+  read_capacity  = local.is_dev ? null : 5
+  write_capacity = local.is_dev ? null : 5
+}
+```
+
+### Auto-Stop Configuration
+
+```hcl
+# Tag resources for auto-stop
+tags = {
+  AutoStop = var.environment == "dev" ? "true" : "false"
+}
+
+# Lambda to stop/start resources based on schedule
+# Schedule: Mon-Fri 8 AM - 8 PM (working hours)
+```
+
+---
+
+## 🎯 Deployment Strategy
+
+### 1. Foundation Deployment (One-Time)
+
+```bash
+cd foundation
+./deploy.sh
+```
+
+This deploys in order:
+1. Backend
+2. IAM OIDC
+3. Organizations
+4. AppRegistry
+5. Config Recorder
+6. Resource Explorer
+7. Tag Reconciler
+8. FinOps
+
+### 2. Environment Deployment (Repeatable)
+
+```bash
+# Dev
+cd envs/dev && ./deploy.sh
+
+# stg (after dev tested)
+cd envs/stg && ./deploy.sh
+
+# Production (with approval)
+cd envs/prod && ./deploy.sh
+```
+
+### 3. Manual Deployment Order
+
+```bash
+# Platform
+cd envs/dev/platform/network-stack && terraform apply
+cd ../iam-secrets && terraform apply
+
+# Applications
+cd ../../apps/webportal && terraform apply
+cd ../backoffice && terraform apply
+
+# Observability
+cd ../../config-recorder && terraform apply
+cd ../observability && terraform apply
+```
+
+---
+
+## ✅ Best Practices Summary
+
+### DO's ✅
+
+1. ✅ **Use consistent naming convention** across all resources
+2. ✅ **Tag all resources** with required tags (enforced by Tag Policy)
+3. ✅ **Separate state files** per stack (not per environment)
+4. ✅ **Use modules** for reusable components
+5. ✅ **Use OIDC** for CI/CD (no static credentials)
+6. ✅ **Enable state locking** with DynamoDB
+7. ✅ **Encrypt state** with KMS
+8. ✅ **Use Fargate Spot** in dev/stg
+9. ✅ **Use Lambda Arm64** for cost savings
+10. ✅ **Enable auto-stop** in dev environment
+11. ✅ **Use Secrets Manager** for sensitive data
+12. ✅ **Version control** all Terraform code
+13. ✅ **Document** modules and stacks
+14. ✅ **Validate** with `terraform validate` and `terraform plan`
+15. ✅ **Format** code with `terraform fmt -recursive`
+
+### DON'Ts ❌
+
+1. ❌ **Don't hardcode values** - use variables
+2. ❌ **Don't skip tagging** - breaks CMDB
+3. ❌ **Don't mix environments** in same state
+4. ❌ **Don't use static IAM credentials** - use OIDC
+5. ❌ **Don't deploy foundation multiple times**
+6. ❌ **Don't use provisioned capacity** in dev
+7. ❌ **Don't keep large log retention** in dev
+8. ❌ **Don't share resources** between environments
+9. ❌ **Don't skip backend encryption**
+10. ❌ **Don't apply without plan review**
+
+---
+
+## 📚 Additional Resources
+
+- [Terraform Best Practices by HashiCorp](https://www.terraform.io/docs/cloud/guides/recommended-practices/index.html)
+- [AWS Well-Architected Framework](https://aws.amazon.com/architecture/well-architected/)
+- [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
+- [AWS AppRegistry](https://docs.aws.amazon.com/servicecatalog/latest/arguide/)
+- [AWS Resource Explorer](https://docs.aws.amazon.com/resource-explorer/)
+
+---
+
+**Last Updated**: January 2025  
+**Maintained by**: Cloud Engineering Team
 

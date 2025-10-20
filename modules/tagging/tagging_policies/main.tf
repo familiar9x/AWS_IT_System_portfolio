@@ -29,7 +29,7 @@ resource "aws_organizations_policy" "mandatory_tags" {
           "@@assign" = "Environment"
         }
         tag_value = {
-          "@@assign" = ["dev", "staging", "prod"]
+          "@@assign" = ["dev", "stg", "prod"]
         }
         enforced_for = {
           "@@assign" = [

@@ -8,9 +8,9 @@ output "github_actions_role_dev_arn" {
   value       = aws_iam_role.github_actions_dev.arn
 }
 
-output "github_actions_role_staging_arn" {
-  description = "ARN of GitHub Actions role for staging environment"
-  value       = aws_iam_role.github_actions_staging.arn
+output "github_actions_role_stg_arn" {
+  description = "ARN of GitHub Actions role for stg environment"
+  value       = aws_iam_role.github_actions_stg.arn
 }
 
 output "github_actions_role_prod_arn" {

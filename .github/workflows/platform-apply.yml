@@ -24,7 +24,7 @@ on:
         type: choice
         options:
           - dev
-          - staging
+          - stg
           - prod
       stack:
         description: 'Stack to deploy'

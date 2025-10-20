@@ -33,7 +33,7 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 # IAM Role for Dev Environment
 resource "aws_iam_role" "github_actions_dev" {
-  name = "github-actions-terraform-dev"
+  name = "dev-terraform-deploy"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -49,7 +49,7 @@ resource "aws_iam_role" "github_actions_dev" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:*"
+            "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/develop"
           }
         }
       }
@@ -57,7 +57,7 @@ resource "aws_iam_role" "github_actions_dev" {
   })
 
   tags = {
-    Name        = "GitHub Actions Role - Dev"
+    Name        = "dev-terraform-deploy"
     Environment = "dev"
     ManagedBy   = "Terraform"
   }
@@ -68,9 +68,9 @@ resource "aws_iam_role_policy_attachment" "github_actions_dev" {
   policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess"
 }
 
-# IAM Role for Staging Environment
-resource "aws_iam_role" "github_actions_staging" {
-  name = "github-actions-terraform-staging"
+# IAM Role for stg Environment
+resource "aws_iam_role" "github_actions_stg" {
+  name = "stg-terraform-deploy"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -94,20 +94,20 @@ resource "aws_iam_role" "github_actions_staging" {
   })
 
   tags = {
-    Name        = "GitHub Actions Role - Staging"
-    Environment = "staging"
+    Name        = "stg-terraform-deploy"
+    Environment = "stg"
     ManagedBy   = "Terraform"
   }
 }
 
-resource "aws_iam_role_policy_attachment" "github_actions_staging" {
-  role       = aws_iam_role.github_actions_staging.name
+resource "aws_iam_role_policy_attachment" "github_actions_stg" {
+  role       = aws_iam_role.github_actions_stg.name
   policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess"
 }
 
 # IAM Role for Production Environment
 resource "aws_iam_role" "github_actions_prod" {
-  name = "github-actions-terraform-prod"
+  name = "prod-terraform-deploy"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -131,7 +131,7 @@ resource "aws_iam_role" "github_actions_prod" {
   })
 
   tags = {
-    Name        = "GitHub Actions Role - Production"
+    Name        = "prod-terraform-deploy"
     Environment = "prod"
     ManagedBy   = "Terraform"
   }

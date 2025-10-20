@@ -31,7 +31,7 @@
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                  ENVIRONMENT LAYERS (Dev/Stg/Prod)               │
+│                  ENVIRONMENT LAYERS (dev/stg/prod)               │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  ┌────────────────────── PLATFORM ──────────────────────────┐  │
@@ -134,7 +134,7 @@ Resources → Config Recorder (local) → Config Aggregator (central)
 ```
 1. Terraform creates resource
    └─→ tags = merge(module.appregistry.application_tag, {...})
-        └─→ awsApplication = "webportal-dev"
+        └─→ awsApplication = "dev-webportal"
 
 2. Resource Explorer indexes resource
    └─→ Searchable by tag
@@ -158,9 +158,9 @@ GitHub Actions
      │
      └─→ AWS STS AssumeRoleWithWebIdentity
               │
-              ├─→ Dev Role (for dev branch)
-              ├─→ Stg Role (for staging branch)
-              └─→ Prod Role (for main branch)
+              ├─→ dev-terraform-deploy (for develop branch)
+              ├─→ stg-terraform-deploy (for stg branch)
+              └─→ prod-terraform-deploy (for main branch)
                        │
                        └─→ Terraform operations
                                 │
@@ -172,9 +172,21 @@ GitHub Actions
 ## 📈 Scalability
 
 - **Foundation**: 1 deployment cho toàn org
-- **Environments**: Scale theo env (dev/stg/prod/...)
-- **Applications**: Scale theo app trong mỗi env
+- **Environments**: Scale theo env (dev/stg/prod)
+- **Applications**: Scale theo app trong mỗi env (webportal, backoffice)
 - **Resources**: Unlimited, tracked by tags
+
+### Naming Pattern
+
+```
+{environment}-{system}-{component}
+
+Examples:
+- dev-webportal-alb
+- stg-webportal-ecs
+- prod-backoffice-lambda
+- dev-backoffice-dynamodb
+```
 
 ## 🎯 Benefits
 
@@ -190,3 +202,60 @@ GitHub Actions
 RE = Resource Explorer  
 AR = AppRegistry  
 DDB = DynamoDB
+
+# 🧱 System Portfolio – Tech Stack Overview
+
+This document summarizes the AWS tech stack used for both applications  
+(**WebPortal** and **Backoffice**) across all environments (dev, stg, prod).  
+It defines key AWS services, high availability notes, and standard tagging conventions.
+
+---
+
+## ⚙️ Tech Stack Summary
+
+| **Tech Stack Layer** | **Description & AWS Services** | **Tag Example (Name + Key/Value)** |
+|-----------------------|--------------------------------|------------------------------------|
+| **Compute** | **Amazon ECS Fargate** runs containerized WebPortal (frontend + backend API) behind **ALB**.  <br>**AWS Lambda** powers Backoffice workloads (internal automation, admin tasks).  <br>In **prod**, enable **Auto Scaling** and **Multi-AZ** for HA. | **Name:** `prod-webportal-ecs` / `prod-backoffice-lambda`  <br>**Tags:**  <br>• Environment = prod  <br>• System = webportal / backoffice  <br>• Owner = team-app  <br>• awsApplication = arn:aws:servicecatalog:.../prod-webportal |
+| **Database / Storage** | **Amazon Aurora Serverless v2 (MySQL)** for all applications.  <br>• WebPortal: Aurora MySQL Serverless v2 (0.5-4 ACU scaling)  <br>• Backoffice: DynamoDB (on-demand) for serverless API  <br>Enable **Multi-AZ** in prod. **Amazon S3** for static content, backups. | **Name:** `prod-webportal-aurora` / `prod-backoffice-dynamodb`  <br>**Tags:**  <br>• Environment = prod  <br>• System = webportal / backoffice  <br>• Owner = dba-team  <br>• DataClass = critical |
+| **Network & Security** | **Dedicated VPC** per environment with public/private/database subnets.  <br>**Security Groups**, **NAT Gateway**, **Route Tables** per env.  <br>**AWS WAF**, **Shield**, **ACM certificate** for WebPortal ALB.  <br>Backoffice Lambda in private subnet. | **Name:** `prod-network-vpc` / `prod-webportal-alb-sg`  <br>**Tags:**  <br>• Environment = prod  <br>• System = network / webportal  <br>• Owner = netops  <br>• ManagedBy = terraform |
+| **Observability / Logging** | **CloudWatch Logs, Metrics, Alarms**, **X-Ray** for tracing Lambda.  <br>**AWS Config**, **CloudTrail**, **Resource Explorer** for compliance.  <br>**VPC Flow Logs** for network monitoring. | **Name:** `prod-monitoring-dashboard`  <br>**Tags:**  <br>• Environment = prod  <br>• System = observability  <br>• Owner = devops  <br>• ManagedBy = terraform |
+| **CI/CD & IaC** | **Terraform** manages full infra (foundation + apps).  <br>**GitHub Actions (OIDC)** handles deployment automation.  <br>No static credentials, uses IAM OIDC provider. | **Name:** `github-terraform-deploy`  <br>**Tags:**  <br>• Environment = foundation  <br>• System = cicd  <br>• Owner = devops  <br>• ManagedBy = terraform |
+| **Identity & Access** | **IAM Roles** for ECS Task Execution/Task Role & Lambda Execution.  <br>**Secrets Manager** for database credentials.  <br>**SSM Parameter Store** for application config.  <br>**IAM OIDC Provider** for GitHub Actions. | **Name:** `prod-webportal-ecs-task-role` / `prod-backoffice-lambda-role`  <br>**Tags:**  <br>• Environment = prod  <br>• System = webportal / backoffice  <br>• Owner = devops |
+| **CMDB / FinOps** | **AppRegistry** catalogs all systems (dev-webportal, stg-webportal, prod-webportal, etc).  <br>**Resource Explorer** for resource discovery.  <br>**Tag Reconciler Lambda** (6h schedule) auto-associates resources.  <br>**CUR + Athena** for cost analytics. | **Name:** `it-system-portfolio` / `tag-reconciler`  <br>**Tags:**  <br>• Environment = foundation  <br>• System = governance  <br>• Owner = platform-team |
+| **Disaster Recovery (DR)** | **Aurora Serverless v2 Multi-AZ** in prod (automated backups 30 days).  <br>**ECS Multi-AZ deployment** (2+ AZs).  <br>**S3 Versioning** enabled for state bucket.  <br>**Aurora automated backups** with point-in-time recovery. | **Name:** `prod-webportal-aurora-backup`  <br>**Tags:**  <br>• Environment = prod  <br>• System = webportal  <br>• Owner = dba-team  <br>• DataClass = backup |
+
+---
+
+## 🏷️ Tagging Convention
+
+**Naming Pattern**: `{environment}-{system}-{component}`
+
+```hcl
+tags = {
+  Name            = "dev-webportal-alb"           # {env}-{system}-{component}
+  Environment     = "dev"                         # dev | stg | prod
+  System          = "webportal"                   # webportal | backoffice
+  Owner           = "team-app@company.com"
+  awsApplication  = "arn:aws:servicecatalog:us-east-1:ACCOUNT:application/dev-webportal"
+  ManagedBy       = "Terraform"
+  CostCenter      = "CC-001"
+  Criticality     = "Medium"                      # Low | Medium | High | Critical
+  AutoStop        = "true"                        # true (dev/stg) | false (prod)
+}
+```
+
+**Examples**:
+- **VPC**: `dev-network`, `stg-network`, `prod-network`
+- **ALB**: `dev-webportal-alb`, `stg-webportal-alb`, `prod-webportal-alb`
+- **ECS Service**: `dev-webportal`, `stg-webportal`, `prod-webportal`
+- **Aurora**: `dev-webportal-aurora`, `stg-webportal-aurora`, `prod-webportal-aurora`
+- **Lambda**: `dev-backoffice-api`, `stg-backoffice-api`, `prod-backoffice-api`
+- **DynamoDB**: `dev-backoffice-data`, `stg-backoffice-data`, `prod-backoffice-data`
+- **AppRegistry**: `dev-webportal`, `stg-webportal`, `prod-webportal`, `dev-backoffice`, `stg-backoffice`, `prod-backoffice`
+
+**Database Strategy**:
+- **WebPortal**: Aurora MySQL Serverless v2 (all environments)
+  - dev: 0.5-1 ACU
+  - stg: 0.5-2 ACU
+  - prod: 1-4 ACU
+- **Backoffice**: DynamoDB on-demand (all environments)

@@ -22,6 +22,11 @@ variable "systems" {
       name        = "webportal"
       description = "Web Portal Application"
       environments = ["dev", "stg", "prod"]
+    },
+    {
+      name        = "backoffice"
+      description = "Backoffice API Application"
+      environments = ["dev", "stg", "prod"]
     }
   ]
 }

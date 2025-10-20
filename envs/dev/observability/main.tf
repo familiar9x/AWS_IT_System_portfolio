@@ -136,7 +136,7 @@ resource "aws_cloudwatch_metric_alarm" "ecs_high_cpu" {
   treat_missing_data  = "notBreaching"
 
   dimensions = {
-    ServiceName = "webportal-dev"
+    ServiceName = "dev-webportal"
     ClusterName = "dev-cluster"
   }
 }

@@ -24,7 +24,7 @@ terraform {
 module "appregistry" {
   source = "../../../../modules/appregistry-application"
 
-  application_name = "webportal-dev"
+  application_name = "dev-webportal"
   description      = "Web Portal Application - Development"
 
   tags = {
@@ -38,7 +38,7 @@ module "appregistry" {
 
 # Example: ALB
 resource "aws_lb" "webportal" {
-  name               = "webportal-dev-alb"
+  name               = "dev-webportal-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
@@ -56,7 +56,7 @@ resource "aws_lb" "webportal" {
 
 # Example: Security Group
 resource "aws_security_group" "alb" {
-  name_prefix = "webportal-dev-alb-"
+  name_prefix = "dev-webportal-alb-"
   vpc_id      = data.aws_vpc.main.id
 
   ingress {
