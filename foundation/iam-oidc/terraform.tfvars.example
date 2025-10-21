@@ -1,6 +1,0 @@
-# Example variables for IAM OIDC
-# Copy và đổi tên thành terraform.tfvars, điều chỉnh theo GitHub organization/repository của bạn
-
-github_org  = "your-github-org"
-github_repo = "your-repo-name"
-region      = "us-east-1"

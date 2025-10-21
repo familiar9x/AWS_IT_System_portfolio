@@ -1,0 +1,25 @@
+name: build-and-deploy
+on:
+  push:
+    branches: [ main ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/github-oidc-deploy
+        aws-region: <REGION>
+    - name: Login to ECR
+      run: |
+        aws ecr get-login-password --region <REGION> | docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com
+    - name: Build & Push images
+      run: |
+        docker build -t cmdb-api:1.0.0 api || true
+        docker tag cmdb-api:1.0.0 <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/cmdb-api:1.0.0 || true
+        docker push <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/cmdb-api:1.0.0 || true
+    - name: Deploy to EKS
+      run: |
+        aws eks update-kubeconfig --name <EKS_NAME> --region <REGION>
+        kubectl -n cmdb set image deploy/api api=<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/cmdb-api:1.0.0 || true

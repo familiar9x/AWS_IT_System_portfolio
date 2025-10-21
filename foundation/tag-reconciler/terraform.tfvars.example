@@ -1,8 +1,0 @@
-# Example variables for Tag Reconciler
-# Copy và đổi tên thành terraform.tfvars
-
-# Get this from Resource Explorer output
-resource_explorer_view_arn = "arn:aws:resource-explorer-2:us-east-1:123456789012:view/applications-view/xxxxx"
-
-region              = "us-east-1"
-schedule_expression = "rate(6 hours)"

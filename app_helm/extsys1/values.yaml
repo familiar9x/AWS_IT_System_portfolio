@@ -1,0 +1,11 @@
+image:
+  repository: "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/cmdb-extsys1"
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 8001
+  targetPort: 8001
