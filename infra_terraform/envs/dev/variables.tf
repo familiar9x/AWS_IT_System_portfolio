@@ -1,79 +1,20 @@
-# Development Environment Variables
-variable "account_id" {
-  description = "AWS Account ID"
-  type        = string
-}
+variable "account_id"       { type = string }
+variable "region"           { type = string }           # e.g., ap-southeast-1
+variable "region_us_east_1" { type = string }           # must be us-east-1 for CloudFront
+variable "name"             { type = string }           # stack prefix, e.g., cmdb
+variable "base_domain"      { type = string }           # example.com (must be a Route53 hosted zone)
 
-variable "region" {
-  description = "AWS Region"
-  type        = string
-  default     = "ap-southeast-1"
-}
+# Certificates
+variable "cloudfront_cert_arn" { type = string }        # ACM in us-east-1 for app.<base_domain>
+variable "alb_cert_arn"        { type = string }        # ACM in primary region for api.<base_domain>
 
-variable "region_us_east_1" {
-  description = "US East 1 region for CloudFront"
-  type        = string
-  default     = "us-east-1"
-}
+# DB
+variable "db_username" { type = string }
+variable "db_password" { type = string }
 
-variable "name" {
-  description = "Project name prefix"
-  type        = string
-  default     = "cmdb-dev"
-}
+# Image tags
+variable "api_image_tag"  { type = string }
+variable "ext1_image_tag" { type = string }
+variable "ext2_image_tag" { type = string }
 
-variable "base_domain" {
-  description = "Base domain name"
-  type        = string
-}
-
-variable "cloudfront_cert_arn" {
-  description = "ACM certificate ARN in us-east-1"
-  type        = string
-}
-
-variable "alb_cert_arn" {
-  description = "ACM certificate ARN in primary region"
-  type        = string
-}
-
-variable "db_username" {
-  description = "Database username"
-  type        = string
-  default     = "cmdbadmin"
-}
-
-variable "db_password" {
-  description = "Database password"
-  type        = string
-  sensitive   = true
-}
-
-variable "api_image_tag" {
-  description = "Docker image tag for API"
-  type        = string
-  default     = "latest"
-}
-
-variable "ext1_image_tag" {
-  description = "Docker image tag for external system 1"
-  type        = string
-  default     = "latest"
-}
-
-variable "ext2_image_tag" {
-  description = "Docker image tag for external system 2"
-  type        = string
-  default     = "latest"
-}
-
-variable "tags" {
-  description = "Resource tags"
-  type        = map(string)
-  default = {
-    Environment = "development"
-    Project     = "CMDB"
-    Owner       = "dev-team"
-    CostCenter  = "engineering"
-  }
-}
+variable "tags" { type = map(string) default = { Project = "CMDB" } }

@@ -79,6 +79,7 @@ build_and_push_images() {
     # Get ECR login token
     aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ecr_base
     
+    # Build main services
     for service in "${SERVICES[@]}"; do
         log_info "Building $service..."
         
@@ -98,6 +99,24 @@ build_and_push_images() {
         log_success "$service image pushed successfully"
         cd - > /dev/null
     done
+    
+    # Build AI Lambda
+    log_info "Building AI Lambda..."
+    cd "ai_lambda"
+    
+    # Build AI Lambda image
+    docker build -t "${PROJECT_NAME}-ai-assistant:latest" .
+    
+    # Tag for ECR
+    docker tag "${PROJECT_NAME}-ai-assistant:latest" "${ecr_base}/${PROJECT_NAME}-ai-assistant:latest"
+    docker tag "${PROJECT_NAME}-ai-assistant:latest" "${ecr_base}/${PROJECT_NAME}-ai-assistant:$(date +%Y%m%d-%H%M%S)"
+    
+    # Push to ECR
+    docker push "${ecr_base}/${PROJECT_NAME}-ai-assistant:latest"
+    docker push "${ecr_base}/${PROJECT_NAME}-ai-assistant:$(date +%Y%m%d-%H%M%S)"
+    
+    log_success "AI Lambda image pushed successfully"
+    cd - > /dev/null
 }
 
 deploy_infrastructure() {
@@ -143,6 +162,72 @@ deploy_infrastructure() {
     cd - > /dev/null
 }
 
+build_frontend() {
+    local env=$1
+    
+    log_info "Building frontend for environment: $env"
+    
+    cd frontend
+    
+    # Check if Node.js is installed
+    if ! command -v node &> /dev/null; then
+        log_error "Node.js is not installed"
+        exit 1
+    fi
+    
+    # Install dependencies
+    if [ ! -d "node_modules" ]; then
+        log_info "Installing dependencies..."
+        npm install
+    fi
+    
+    # Copy environment file
+    if [ ! -f ".env" ]; then
+        if [ -f ".env.example" ]; then
+            cp .env.example .env
+            log_warning "Created .env from .env.example - please configure your API URLs"
+        fi
+    fi
+    
+    # Build frontend
+    log_info "Building React app..."
+    npm run build
+    
+    log_success "Frontend built successfully in dist/"
+    cd - > /dev/null
+}
+
+upload_frontend() {
+    local env=$1
+    
+    log_info "Uploading frontend to S3..."
+    
+    # Get bucket name from Terraform output
+    cd "infra_terraform/envs/$env"
+    
+    local bucket_name=$(terraform output -raw fe_bucket 2>/dev/null)
+    local distribution_id=$(terraform output -raw fe_distribution_id 2>/dev/null)
+    
+    if [ -z "$bucket_name" ]; then
+        log_error "Could not get S3 bucket name from Terraform output"
+        cd - > /dev/null
+        return 1
+    fi
+    
+    cd - > /dev/null
+    
+    # Upload files
+    aws s3 sync frontend/dist/ "s3://$bucket_name/" --delete
+    
+    # Invalidate CloudFront cache
+    if [ -n "$distribution_id" ]; then
+        log_info "Invalidating CloudFront cache..."
+        aws cloudfront create-invalidation --distribution-id "$distribution_id" --paths "/*"
+    fi
+    
+    log_success "Frontend uploaded successfully"
+}
+
 destroy_infrastructure() {
     local env=$1
     
@@ -160,24 +245,41 @@ destroy_infrastructure() {
 }
 
 show_help() {
-    echo "CMDB Deployment Script"
+    echo "CMDB Deployment Script with AI Assistant"
     echo ""
     echo "Usage: $0 [COMMAND] [ENVIRONMENT]"
     echo ""
     echo "Commands:"
-    echo "  build     Build and push Docker images to ECR"
-    echo "  deploy    Deploy infrastructure with Terraform"
-    echo "  destroy   Destroy infrastructure"
-    echo "  help      Show this help message"
+    echo "  build        Build and push Docker images (API + AI Lambda) to ECR"
+    echo "  deploy       Deploy infrastructure with Terraform"
+    echo "  frontend     Build and upload frontend to S3"
+    echo "  full-deploy  Complete deployment (build + deploy + frontend)"
+    echo "  destroy      Destroy infrastructure"
+    echo "  help         Show this help message"
     echo ""
     echo "Environments:"
-    echo "  dev       Development environment"
-    echo "  prod      Production environment"
+    echo "  dev          Development environment (smaller resources)"
+    echo "  prod         Production environment (full resources)"
     echo ""
     echo "Examples:"
-    echo "  $0 build prod          # Build and push images"
-    echo "  $0 deploy prod         # Deploy to production"
-    echo "  $0 destroy dev         # Destroy dev environment"
+    echo "  $0 build prod           # Build and push all Docker images"
+    echo "  $0 deploy prod          # Deploy infrastructure only"
+    echo "  $0 frontend prod        # Build and upload frontend only"
+    echo "  $0 full-deploy prod     # Complete deployment"
+    echo "  $0 destroy dev          # Destroy dev environment"
+    echo ""
+    echo "AI Assistant Features:"
+    echo "  - Natural language queries to CMDB database"
+    echo "  - AWS Bedrock integration (Claude 3 Haiku)"
+    echo "  - React frontend with chat interface"
+    echo "  - Serverless Lambda with API Gateway"
+    echo ""
+    echo "Prerequisites:"
+    echo "  - AWS CLI configured"
+    echo "  - Docker installed"
+    echo "  - Terraform >= 1.6.0"
+    echo "  - Node.js (for frontend build)"
+    echo "  - Domain in Route53 with SSL certificates"
 }
 
 validate_environment() {
@@ -204,6 +306,22 @@ case $COMMAND in
         check_prerequisites
         validate_environment $ENVIRONMENT
         deploy_infrastructure $ENVIRONMENT
+        ;;
+    "frontend")
+        check_prerequisites
+        validate_environment $ENVIRONMENT
+        build_frontend $ENVIRONMENT
+        upload_frontend $ENVIRONMENT
+        ;;
+    "full-deploy")
+        check_prerequisites
+        validate_environment $ENVIRONMENT
+        log_info "Starting full deployment for $ENVIRONMENT environment..."
+        build_and_push_images $ENVIRONMENT
+        deploy_infrastructure $ENVIRONMENT
+        build_frontend $ENVIRONMENT
+        upload_frontend $ENVIRONMENT
+        log_success "Full deployment completed!"
         ;;
     "destroy")
         check_prerequisites

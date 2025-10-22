@@ -1,11 +1,12 @@
-# CMDB — Full Project (FE: S3+CloudFront, BE: ECS Fargate + RDS SQL Server)
+# CMDB — Full Project with AI Assistant (FE: S3+CloudFront, BE: ECS Fargate + RDS SQL Server + AI Lambda)
 
-## What you get
+## 🤖 What you get
 - **Terraform-only infra**: VPC, NAT, ALB (HTTPS), ECS Fargate (api + extsys1/2 + scheduled ingest), RDS SQL Server (private), ECR, Secrets Manager, CloudWatch.
 - **FE static hosting**: S3 (private) + CloudFront (OAC). Route53 records for `app.<domain>` and `api.<domain>`.
 - **Production-ready API**: Node.js Express API with proper error handling, database integration, health checks, and security middleware.
 - **Mock external systems**: Two external services with realistic mock data for testing integrations.
 - **Monitoring**: CloudWatch dashboards, alarms for CPU/Memory/Response time, and health monitoring.
+- **🚀 AI Assistant**: Natural language querying with AWS Bedrock (Claude 3 Haiku), Lambda-based SQL generation, React chat interface.
 
 ---
 
@@ -21,6 +22,20 @@
 ### 1. Build & push images
 ```bash
 # Build and tag images
+### 1. Quick deployment (Recommended)
+```bash
+# Complete deployment with one command
+./deploy.sh full-deploy prod
+
+# Or step by step
+./deploy.sh build prod      # Build all images (API + AI Lambda)
+./deploy.sh deploy prod     # Deploy infrastructure
+./deploy.sh frontend prod   # Build and upload React frontend
+```
+
+### 2. Manual deployment
+```bash
+# Build and tag images
 cd app/api-node
 docker build -t cmdb-api:1.0.0 .
 
@@ -29,6 +44,10 @@ docker build -t cmdb-extsys1:1.0.0 .
 
 cd ../extsys2
 docker build -t cmdb-extsys2:1.0.0 .
+
+# Build AI Lambda
+cd ../../ai_lambda
+docker build -t cmdb-ai-assistant:1.0.0 .
 
 # Push to ECR (after terraform creates repos)
 aws ecr get-login-password --region ap-southeast-1 | docker login --username AWS --password-stdin <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com
@@ -41,9 +60,12 @@ docker push <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-extsys1:1.0.0
 
 docker tag cmdb-extsys2:1.0.0 <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-extsys2:1.0.0
 docker push <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-extsys2:1.0.0
+
+docker tag cmdb-ai-assistant:1.0.0 <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-ai-assistant:1.0.0
+docker push <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-ai-assistant:1.0.0
 ```
 
-### 2. Deploy with Terraform
+### 3. Deploy with Terraform
 ```bash
 cd infra_terraform/envs/prod
 cp terraform.tfvars.example terraform.tfvars
@@ -57,19 +79,58 @@ terraform plan
 terraform apply
 ```
 
-### 3. Upload Frontend (optional)
+### 4. Setup Database Schema (Required for AI)
 ```bash
-# After you build your React/Vue/Angular app
-aws s3 sync <YOUR_FE_DIST_FOLDER>/ s3://<fe_bucket_name>/ --delete
-aws cloudfront create-invalidation --distribution-id <fe_distribution_id> --paths "/*"
+# Connect to your RDS instance and run:
+sqlcmd -S <rds-endpoint> -U <username> -P <password> -d CMDB -i database/ai_schema.sql
+
+# Or use SQL Server Management Studio to run the script
 ```
 
-### 4. Test the deployment
-- **Frontend**: `https://app.<base_domain>`
+### 5. Test the deployment
+- **Frontend with AI Chat**: `https://app.<base_domain>`
 - **API Health**: `https://api.<base_domain>/health`
-- **API Docs**: `https://api.<base_domain>/api/v1/ci`
+- **API Endpoints**: `https://api.<base_domain>/api/v1/ci`
+- **AI Assistant**: `https://<ai-api-gateway-url>/prod/ask`
 - **CloudWatch Dashboard**: Check terraform outputs for dashboard URL
-> 💡 **Tip**: Frontend should call the API via `https://api.<base_domain>`. Configure your build environment variables (e.g., VITE_API_URL) accordingly.
+
+### 6. Configure Frontend Environment
+```bash
+cd frontend
+cp .env.example .env
+# Edit .env with your API Gateway URL from Terraform outputs
+```
+
+> 💡 **AI Assistant Features**: Ask questions like "Thiết bị nào sắp hết hạn bảo hành?", "Chi phí bảo hành tháng này", "Thống kê thiết bị theo loại"
+
+---
+
+## 🤖 AI Assistant Features
+
+### Natural Language Queries
+- **Warranty expiration**: "Thiết bị nào sắp hết hạn bảo hành trong tháng này?"
+- **Cost analysis**: "Tổng chi phí bảo hành theo quý"
+- **Device statistics**: "Thống kê thiết bị theo loại"
+- **Search devices**: "Tìm thiết bị WEB-SERVER"
+- **Recent changes**: "Thay đổi gần đây trong hệ thống"
+- **Expired warranties**: "Thiết bị nào đã hết hạn bảo hành?"
+
+### Supported Intent Categories
+| Intent | Description | Example Query |
+|--------|-------------|---------------|
+| `MA_EXPIRING` | Thiết bị sắp hết hạn | "Thiết bị hết hạn tháng này" |
+| `MA_EXPIRED` | Thiết bị đã hết hạn | "Thiết bị đã hết hạn bảo hành" |
+| `MA_COST_BY_MONTH` | Chi phí theo thời gian | "Chi phí bảo hành quý này" |
+| `DEVICES_BY_TYPE` | Thống kê theo loại | "Thống kê server và switch" |
+| `CHANGES_LAST_30D` | Thay đổi gần đây | "Thay đổi trong 30 ngày" |
+| `DEVICE_SEARCH` | Tìm kiếm thiết bị | "Tìm laptop DEV" |
+
+### AI Architecture
+- **Frontend**: React chat interface with real-time responses
+- **API Gateway**: HTTP API with CORS support
+- **Lambda**: Python container with SQL Server ODBC driver
+- **Bedrock**: Claude 3 Haiku for natural language understanding
+- **Database**: SQL Server with optimized views and readonly user
 
 ---
 

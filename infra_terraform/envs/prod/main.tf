@@ -134,6 +134,17 @@ module "monitoring" {
   # sns_topic_arn          = aws_sns_topic.alerts.arn  # Uncomment when SNS is set up
 }
 
+# AI Assistant
+module "ai_assistant" {
+  source             = "../../modules/ai-assistant"
+  name               = var.name
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+  rds_sg_id          = module.rds.sg_id
+  db_secret_arn      = module.secrets.db_secret_arn
+  tags               = var.tags
+}
+
 # CloudFront + S3 for FE
 module "cf_fe" {
   source            = "../../modules/cf-s3-oac"
@@ -171,6 +182,23 @@ output "api_endpoints" {
   value = {
     health = "https://api.${var.base_domain}/health"
     api_v1 = "https://api.${var.base_domain}/api/v1"
+    ai_ask = module.ai_assistant.ask_endpoint
   }
   description = "API endpoints for testing"
+}
+
+# AI Assistant outputs
+output "ai_assistant_api_url" {
+  value = module.ai_assistant.api_gateway_url
+  description = "AI Assistant API Gateway URL"
+}
+
+output "ai_ask_endpoint" {
+  value = module.ai_assistant.ask_endpoint
+  description = "AI Ask endpoint for frontend integration"
+}
+
+output "ai_ecr_repository" {
+  value = module.ai_assistant.ecr_repository_url
+  description = "ECR repository URL for AI Lambda"
 }
