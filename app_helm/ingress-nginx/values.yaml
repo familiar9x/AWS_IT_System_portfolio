@@ -1,7 +1,0 @@
-controller:
-  service:
-    type: NodePort
-  config:
-    use-proxy-protocol: "false"
-    proxy-body-size: "64m"
-    proxy-read-timeout: "120"

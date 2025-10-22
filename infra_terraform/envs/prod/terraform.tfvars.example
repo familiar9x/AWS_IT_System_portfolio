@@ -1,0 +1,15 @@
+account_id        = "123456789012"
+region            = "ap-southeast-1"
+region_us_east_1  = "us-east-1"
+name              = "cmdb"
+base_domain       = "example.com"
+
+cloudfront_cert_arn = "arn:aws:acm:us-east-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+alb_cert_arn        = "arn:aws:acm:ap-southeast-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+db_username = "cmdbadmin"
+db_password = "ChangeMeStrong!123"
+
+api_image_tag  = "1.0.0"
+ext1_image_tag = "1.0.0"
+ext2_image_tag = "1.0.0"
