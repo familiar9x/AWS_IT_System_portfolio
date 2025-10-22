@@ -36,7 +36,7 @@
 ### 2. Manual deployment
 ```bash
 # Build and tag images
-cd app/api-node
+cd backend/api-node
 docker build -t cmdb-api:1.0.0 .
 
 cd ../extsys1  
@@ -79,7 +79,20 @@ terraform plan
 terraform apply
 ```
 
-### 4. Setup Database Schema (Required for AI)
+### 4. Setup Terraform Backend (Recommended)
+```bash
+# Create S3 bucket and DynamoDB table for remote state
+./deploy.sh bootstrap-backend
+
+# After bootstrap, enable backend in infra_terraform/envs/prod/backend.tf
+# Uncomment the backend "s3" block and update with your account ID
+
+# Then migrate existing state (if any)
+cd infra_terraform/envs/prod
+terraform init -migrate-state
+```
+
+### 5. Setup Database Schema (Required for AI)
 ```bash
 # Connect to your RDS instance and run:
 sqlcmd -S <rds-endpoint> -U <username> -P <password> -d CMDB -i database/ai_schema.sql
@@ -87,14 +100,14 @@ sqlcmd -S <rds-endpoint> -U <username> -P <password> -d CMDB -i database/ai_sche
 # Or use SQL Server Management Studio to run the script
 ```
 
-### 5. Test the deployment
+### 6. Test the deployment
 - **Frontend with AI Chat**: `https://app.<base_domain>`
 - **API Health**: `https://api.<base_domain>/health`
 - **API Endpoints**: `https://api.<base_domain>/api/v1/ci`
 - **AI Assistant**: `https://<ai-api-gateway-url>/prod/ask`
 - **CloudWatch Dashboard**: Check terraform outputs for dashboard URL
 
-### 6. Configure Frontend Environment
+### 7. Configure Frontend Environment
 ```bash
 cd frontend
 cp .env.example .env
@@ -239,7 +252,7 @@ After deployment, check Terraform outputs for the dashboard URL, which includes:
 ### Local Development
 ```bash
 # Run API locally
-cd app/api-node
+cd backend/api-node
 cp .env.example .env
 # Edit .env with local database settings
 npm install
@@ -282,14 +295,14 @@ NODE_ENV=production
 ## 🛠️ Customization
 
 ### Adding New Services
-1. Create new container in `app/` directory
+1. Create new container in `backend/` directory
 2. Add ECR repository in `modules/ecr/main.tf`
 3. Add service definition in `modules/services/main.tf`  
 4. Update monitoring in `modules/monitoring/main.tf`
 
 ### Database Migrations
 For schema changes, consider adding:
-- Migration scripts in `app/api-node/migrations/`
+- Migration scripts in `backend/api-node/migrations/`
 - Database backup before changes
 - Blue-green deployment strategy
 
@@ -351,6 +364,106 @@ aws cloudfront create-invalidation --distribution-id <id> --paths "/*"
 4. **Backup Strategy**: Automated database backups and point-in-time recovery
 5. **Multi-Environment**: Add staging environment configuration
 6. **Performance Testing**: Load testing with realistic data volumes
+
+---
+
+## 🗂️ Terraform Backend
+
+### Remote State Storage
+The project supports remote state storage using S3 + DynamoDB for team collaboration:
+
+- **S3 Bucket**: Stores Terraform state files with versioning and encryption
+- **DynamoDB Table**: Provides state locking to prevent concurrent modifications
+- **IAM Role**: Dedicated permissions for backend access
+
+### Setup Remote Backend
+```bash
+# 1. Bootstrap backend infrastructure (run once)
+./deploy.sh bootstrap-backend
+
+# 2. Enable backend configuration
+# Edit: infra_terraform/envs/prod/backend.tf
+# Uncomment the backend "s3" block and update account ID
+
+# 3. Migrate to remote state
+cd infra_terraform/envs/prod
+terraform init -migrate-state
+```
+
+### Backend Configuration
+```hcl
+terraform {
+  backend "s3" {
+    bucket         = "cmdb-terraform-state-ACCOUNT_ID-ap-southeast-1"
+    key            = "cmdb/terraform.tfstate"
+    region         = "ap-southeast-1"
+    dynamodb_table = "cmdb-terraform-state-lock"
+    encrypt        = true
+  }
+}
+```
+
+### Benefits
+- **State Sharing**: Multiple team members can work on the same infrastructure
+- **State Locking**: Prevents concurrent modifications and state corruption
+- **State History**: S3 versioning provides rollback capabilities
+- **Security**: Encrypted state storage with proper IAM permissions
+
+---
+
+## 📁 Project Structure
+
+```
+AWS_IT_System_portfolio/
+├── README.md                    # Project documentation
+├── deploy.sh                    # Automated deployment script
+├── script_git_push.sh          # Git automation
+│
+├── backend/                     # Backend Services
+│   ├── api-node/               # Main CMDB API (Node.js + Express)
+│   │   ├── Dockerfile          # Container configuration
+│   │   ├── package.json        # Dependencies
+│   │   ├── index.js           # API server
+│   │   └── .env.example       # Environment template
+│   ├── extsys1/               # External System 1 (Server data)
+│   └── extsys2/               # External System 2 (Network data)
+│
+├── ai_lambda/                  # AI Assistant
+│   ├── Dockerfile             # Python Lambda container
+│   ├── lambda_function.py     # AI processing logic
+│   └── requirements.txt       # Python dependencies
+│
+├── frontend/                   # React Frontend
+│   ├── src/                   # React components
+│   ├── package.json          # Frontend dependencies
+│   ├── vite.config.js        # Build configuration
+│   └── .env.example          # Environment template
+│
+├── infra_terraform/           # Infrastructure as Code
+│   ├── envs/                 # Environment-specific configs
+│   │   ├── dev/             # Development environment
+│   │   └── prod/            # Production environment
+│   └── modules/             # Reusable Terraform modules
+│       ├── vpc/             # VPC & networking
+│       ├── ecs/             # Container orchestration
+│       ├── rds-mssql/       # SQL Server database
+│       ├── alb/             # Load balancer
+│       ├── monitoring/      # CloudWatch dashboards & alarms
+│       ├── ai-assistant/    # AI Lambda infrastructure
+│       └── secrets/         # Secrets Manager
+│
+└── database/                  # Database Scripts
+    └── ai_schema.sql         # CMDB schema & sample data
+```
+
+### Backend Services Overview
+
+| Service | Technology | Port | Purpose |
+|---------|------------|------|---------|
+| **api-node** | Node.js + Express + SQL Server | 3000 | Main CMDB REST API |
+| **extsys1** | Node.js + Express | 8001 | Mock server/infrastructure data |
+| **extsys2** | Node.js + Express | 8002 | Mock network equipment data |
+| **ai_lambda** | Python + AWS Bedrock | Lambda | Natural language query processing |
 
 ---
 

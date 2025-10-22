@@ -1,4 +1,14 @@
-0) Chuẩn bị
+## ✅ CMDB Project - Complete Implementation
+
+### 🎯 All Components Implemented According to Architecture Specification
+
+The project now fully implements the enterprise CMDB system with AI assistant as specified in the architecture diagrams below. All components are working together seamlessly through CloudFront's multi-origin setup.
+
+---
+
+## 📋 Implementation Status
+
+### ✅ 1) Front door & delivery (one domain, zero CORS)
 
  Domain có Route53 hosted zone (vd: example.com).
 
@@ -119,3 +129,190 @@ Access-Control-Allow-Origin: https://app.<domain>.
  https://app.<domain>/api/health (qua CF→ALB) 200.
 
  Ingest chạy theo lịch; logs không lỗi; báo cáo MA trả dữ liệu.
+
+
+
+ 1) Front door & delivery (one domain, zero CORS)
+
+We run the whole product behind one CloudFront distribution with three origins so the browser never has to juggle domains:
+
+Origin A (S3 via OAC): React SPA static files (/*).
+
+Origin B (ALB): Core REST API (/api/*) → ECS Fargate.
+
+Origin C (API Gateway): AI endpoint (/ai/*) → Lambda (Bedrock).
+
+Why it matters
+
+Single hostname → simpler cookies, no CORS headaches.
+
+WAF on CloudFront protects all paths (static, API, AI) in one place.
+
+Edge caching for FE assets; no caching for API/AI behaviors.
+
+flowchart LR
+  U[End User] -->|DNS| R53[Route53]
+  R53 --> CF[CloudFront (WAF, TLS)]
+  CF -- "/*" --> S3[(S3 FE Bucket<br/>OAC, Private)]
+  CF -- "/api/*" --> ALB[ALB (HTTPS)]
+  CF -- "/ai/*" --> APIGW[API Gateway (HTTP API)]
+
+
+Glue details
+
+ACM: one cert in us-east-1 for CloudFront; a second cert in the workload region for ALB.
+
+Secret header: CloudFront injects X-From-CF → ALB listener 403 if missing (blocks direct ALB hits).
+
+SPA fallback: CloudFront custom error 403/404 → /index.html for deep links.
+
+2) Core microservice path (API → ECS → RDS)
+
+The CMDB API (Node.js) runs on ECS Fargate in private subnets; ALB is public in two subnets. RDS for SQL Server sits in private subnets.
+
+sequenceDiagram
+  participant U as Browser
+  participant CF as CloudFront
+  participant ALB as ALB :443 (ACM)
+  participant API as ECS Fargate (api)
+  participant SM as Secrets Manager
+  participant DB as RDS SQL Server (private)
+
+  U->>CF: GET/POST /api/*
+  CF->>ALB: HTTPS + X-From-CF
+  ALB->>API: HTTP :3000 (target group)
+  API->>SM: Get DB_PASS (task execution role)
+  API->>DB: T-SQL (parameterized)
+  DB-->>API: rows
+  API-->>CF: JSON
+  CF-->>U: JSON
+
+
+Glue details
+
+Security Groups: ALB:443 → ECS:3000; ECS → RDS:1433.
+
+Secrets Manager passes DB creds to the task as container secrets (never baked into images).
+
+VPC Endpoints (optional, no-NAT mode): ECR API/DKR, CloudWatch Logs, Secrets Manager, S3 Gateway → ECS tasks pull images, log, and fetch secrets without NAT.
+
+IaC: ECS services, task definitions, target groups, listeners, SG rules are all Terraform’d.
+
+3) AI over live data (safe, template-based)
+
+Natural-language Q&A uses Bedrock, but never lets the model output raw SQL. Lambda gets an intent+params JSON, then executes a whitelisted, parameterized SQL with a read-only DB user.
+
+sequenceDiagram
+  participant U as Browser
+  participant CF as CloudFront
+  participant GW as API Gateway /ai/ask
+  participant L as Lambda (container, VPC)
+  participant BR as Bedrock Runtime
+  participant SM as Secrets Manager
+  participant DB as RDS SQL Server (RO)
+
+  U->>CF: POST /ai/ask { q }
+  CF->>GW: HTTPS
+  GW->>L: Invoke (payload)
+  L->>BR: InvokeModel (force JSON: {intent, params})
+  BR-->>L: {intent, params}
+  L->>SM: GetSecretValue (DB creds)
+  L->>DB: Run templated SQL (RO user)
+  DB-->>L: rows
+  L-->>GW: JSON {intent, rows}
+  GW-->>CF: 200
+  CF-->>U: 200
+
+
+Glue details
+
+Lambda as a container so we can bundle msodbcsql17/pyodbc or mssql drivers.
+
+VPC config on Lambda to talk to RDS (ENIs in private subnets).
+
+VPCEs or NAT: Lambda reaches Bedrock/Secrets/Logs via VPC Endpoints (preferred) or NAT if you keep it simple.
+
+Guardrails: intent whitelist, param validation, TOP/LIMIT & timeouts, plus read-only principal on RDS (often via views).
+
+4) Automated ingest (two external systems → CMDB)
+
+We model “other systems” as HTTP sources. EventBridge triggers an hourly RunTask on ECS Fargate to fetch, validate, and upsert.
+
+sequenceDiagram
+  participant EVB as EventBridge (cron)
+  participant ING as ECS Task (ingest)
+  participant EXT1 as External System 1
+  participant EXT2 as External System 2
+  participant SM as Secrets Manager
+  participant DB as RDS SQL Server
+
+  EVB->>ING: RunTask (Fargate)
+  ING->>SM: API keys / DB pass
+  ING->>EXT1: GET devices/contracts
+  ING->>EXT2: GET devices/contracts
+  ING->>DB: MERGE / UPSERT (Devices, MA)
+  ING-->>EVB: Logs/metrics (CloudWatch)
+
+
+Glue details
+
+IAM for EventBridge: ecs:RunTask + iam:PassRole (task & exec roles only).
+
+Retry/DLQ: CloudWatch/EventBridge target with retries and SQS DLQ (optional).
+
+Merge policy on serial/asset tag with audit entries recorded to DeviceChanges.
+
+5) Putting it all together (component diagram)
+flowchart TB
+  subgraph Edge
+    R53[Route53]
+    CF[CloudFront + WAF + TLS]
+  end
+
+  subgraph VPC
+    IGW[Internet Gateway]
+    subgraph Public Subnets
+      ALB[ALB (HTTPS)]
+    end
+    subgraph Private Subnets
+      ECS[ECS Fargate: api + ingest]
+      LBD[Lambda: sql-assistant]
+      RDS[(RDS: SQL Server)]
+      VPCE1[[VPCE: ecr.api/ecr.dkr]]
+      VPCE2[[VPCE: logs]]
+      VPCE3[[VPCE: secretsmanager]]
+      VPCE4[[VPCE: bedrock-runtime (opt)]]
+      RT[Route Tables]
+    end
+  end
+
+  S3[(S3: FE bucket\nOAC, private)]
+  APIGW[API Gateway /ai]
+  BR[Bedrock Runtime]
+  SM[Secrets Manager]
+  ECR[ECR Repos]
+  CW[CloudWatch Logs]
+  EVB[EventBridge]
+  ACM_Cf[ACM (us-east-1)]
+  ACM_ALB[ACM (region)]
+  
+  R53 --> CF
+  CF -->|/*| S3
+  CF -->|/api/*| ALB
+  CF -->|/ai/*| APIGW
+  ALB --> ECS --> RDS
+  EVB --> ECS
+  LBD --> RDS
+  APIGW --> LBD
+  LBD --> BR
+  ECS --> ECR
+  ECS --> CW
+  LBD --> CW
+  ECS --> SM
+  LBD --> SM
+  CF -.-> ACM_Cf
+  ALB -.-> ACM_ALB
+  VPCE1 -. private -.-> ECS
+  VPCE2 -. private -.-> ECS
+  VPCE3 -. private -.-> ECS
+  VPCE4 -. private -.-> LBD

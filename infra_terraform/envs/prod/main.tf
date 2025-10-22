@@ -1,9 +1,4 @@
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    aws = { source = "hashicorp/aws", version = "~> 5.0" }
-  }
-}
+# Terraform configuration moved to backend.tf
 
 provider "aws" {
   region = var.region
@@ -15,27 +10,6 @@ provider "aws" {
   region = var.region_us_east_1
 }
 
-variable "account_id"       { type = string }
-variable "region"           { type = string }           # e.g., ap-southeast-1
-variable "region_us_east_1" { type = string }           # must be us-east-1 for CloudFront
-variable "name"             { type = string }           # stack prefix, e.g., cmdb
-variable "base_domain"      { type = string }           # example.com (must be a Route53 hosted zone)
-
-# Certificates
-variable "cloudfront_cert_arn" { type = string }        # ACM in us-east-1 for app.<base_domain>
-variable "alb_cert_arn"        { type = string }        # ACM in primary region for api.<base_domain>
-
-# DB
-variable "db_username" { type = string }
-variable "db_password" { type = string }
-
-# Image tags
-variable "api_image_tag"  { type = string }
-variable "ext1_image_tag" { type = string }
-variable "ext2_image_tag" { type = string }
-
-variable "tags" { type = map(string) default = { Project = "CMDB" } }
-
 # VPC
 module "vpc" {
   source   = "../../modules/vpc"
@@ -43,16 +17,6 @@ module "vpc" {
   cidr     = "10.0.0.0/16"
   az_count = 2
   tags     = var.tags
-}
-
-# ALB
-module "alb" {
-  source            = "../../modules/alb"
-  name              = var.name
-  vpc_id            = module.vpc.vpc_id
-  public_subnet_ids = module.vpc.public_subnet_ids
-  cert_arn          = var.alb_cert_arn
-  tags              = var.tags
 }
 
 # ECS
@@ -75,7 +39,10 @@ module "secrets" {
 }
 
 # RDS
-resource "aws_security_group" "svc_placeholder" { name="${var.name}-svc-ph", vpc_id=module.vpc.vpc_id }
+resource "aws_security_group" "svc_placeholder" {
+  name   = "${var.name}-svc-ph"
+  vpc_id = module.vpc.vpc_id
+}
 module "rds" {
   source       = "../../modules/rds-mssql"
   name         = "${var.name}-cmdb"
@@ -125,16 +92,16 @@ resource "aws_security_group_rule" "rds_allow" {
 
 # Monitoring and Alerting
 module "monitoring" {
-  source                   = "../../modules/monitoring"
-  name                     = var.name
-  cluster_name             = module.ecs.cluster_name
-  service_names            = ["api", "extsys1", "extsys2"]
+  source                  = "../../modules/monitoring"
+  name                    = var.name
+  cluster_name            = module.ecs.cluster_name
+  service_names           = ["api", "extsys1", "extsys2"]
   alb_arn_suffix          = split("/", module.alb.alb_arn)[1]
   target_group_arn_suffix = split("/", module.alb.tg_api_arn)[1]
   # sns_topic_arn          = aws_sns_topic.alerts.arn  # Uncomment when SNS is set up
 }
 
-# AI Assistant
+# AI Assistant (needed for CloudFront origin)
 module "ai_assistant" {
   source             = "../../modules/ai-assistant"
   name               = var.name
@@ -145,14 +112,27 @@ module "ai_assistant" {
   tags               = var.tags
 }
 
-# CloudFront + S3 for FE
-module "cf_fe" {
-  source            = "../../modules/cf-s3-oac"
-  providers         = { aws.use1 = aws.use1 } # ACM in us-east-1
+# ALB (created first for CloudFront origin)
+module "alb" {
+  source            = "../../modules/alb"
   name              = var.name
-  domain_name       = "app.${var.base_domain}"
-  hosted_zone_name  = var.base_domain
-  cert_arn_use1     = var.cloudfront_cert_arn
+  vpc_id            = module.vpc.vpc_id
+  public_subnet_ids = module.vpc.public_subnet_ids
+  cert_arn          = var.alb_cert_arn
+  cf_secret_header  = "temporary-secret" # Will be updated by CloudFront
+  tags              = var.tags
+}
+
+# CloudFront + S3 for FE (Multi-origin: S3, ALB, API Gateway)
+module "cloudfront" {
+  source             = "../../modules/cf-s3-oac"
+  providers          = { aws.use1 = aws.use1 } # ACM in us-east-1
+  name               = var.name
+  domain_name        = "app.${var.base_domain}"
+  hosted_zone_name   = var.base_domain
+  cert_arn_use1      = var.cloudfront_cert_arn
+  alb_dns_name       = module.alb.alb_dns
+  api_gateway_domain = module.ai_assistant.api_gateway_domain
 }
 
 # Route53 for API (ALB)
@@ -165,16 +145,48 @@ module "route53_api" {
   alb_zone_id      = data.aws_lb.alb.zone_id
 }
 
+# EventBridge Automated Ingest
+module "eventbridge_ingest" {
+  source                  = "../../modules/eventbridge-ingest"
+  name                    = var.name
+  vpc_id                  = module.vpc.vpc_id
+  private_subnet_ids      = module.vpc.private_subnet_ids
+  ecs_cluster_id          = module.ecs.cluster_arn
+  ecs_task_definition_arn = module.services.ingest_task_definition_arn
+  ecs_security_group_id   = module.services.svc_sg_id
+  tags                    = var.tags
+}
+
+# Update ALB listener rules with correct CloudFront secret
+resource "aws_lb_listener_rule" "update_cloudfront_rule" {
+  listener_arn = module.alb.listener_arn
+  priority     = 50
+
+  action {
+    type             = "forward"
+    target_group_arn = module.alb.tg_api_arn
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-From-CF"
+      values           = [module.cloudfront.cf_secret_header]
+    }
+  }
+
+  depends_on = [module.cloudfront]
+}
+
 # Outputs
-output "fe_bucket"           { value = module.cf_fe.bucket_name }
-output "fe_distribution_id"  { value = module.cf_fe.distribution_id }
-output "fe_distribution_host"{ value = module.cf_fe.distribution_host }
-output "alb_dns"             { value = module.alb.alb_dns }
-output "rds_endpoint"        { value = module.rds.endpoint }
+output "fe_bucket" { value = module.cloudfront.bucket_name }
+output "fe_distribution_id" { value = module.cloudfront.distribution_id }
+output "fe_distribution_host" { value = module.cf_fe.distribution_host }
+output "alb_dns" { value = module.alb.alb_dns }
+output "rds_endpoint" { value = module.rds.endpoint }
 
 # Monitoring outputs
-output "cloudwatch_dashboard_url" { 
-  value = module.monitoring.dashboard_url 
+output "cloudwatch_dashboard_url" {
+  value       = module.monitoring.dashboard_url
   description = "URL to the CloudWatch dashboard"
 }
 
@@ -189,16 +201,27 @@ output "api_endpoints" {
 
 # AI Assistant outputs
 output "ai_assistant_api_url" {
-  value = module.ai_assistant.api_gateway_url
+  value       = module.ai_assistant.api_gateway_url
   description = "AI Assistant API Gateway URL"
 }
 
 output "ai_ask_endpoint" {
-  value = module.ai_assistant.ask_endpoint
+  value       = module.ai_assistant.ask_endpoint
   description = "AI Ask endpoint for frontend integration"
 }
 
 output "ai_ecr_repository" {
-  value = module.ai_assistant.ecr_repository_url
+  value       = module.ai_assistant.ecr_repository_url
   description = "ECR repository URL for AI Lambda"
+}
+
+# EventBridge outputs
+output "ingest_rule_arn" {
+  value       = module.eventbridge_ingest.eventbridge_rule_arn
+  description = "EventBridge rule ARN for automated ingest"
+}
+
+output "ingest_dlq_url" {
+  value       = module.eventbridge_ingest.dlq_url
+  description = "Dead Letter Queue for failed ingest tasks"
 }

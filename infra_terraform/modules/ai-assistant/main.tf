@@ -311,6 +311,11 @@ output "api_gateway_url" {
   description = "API Gateway URL for AI Assistant"
 }
 
+output "api_gateway_domain" {
+  value = replace(aws_apigatewayv2_api.ai_api.api_endpoint, "https://", "")
+  description = "API Gateway domain name for CloudFront origin"
+}
+
 output "ask_endpoint" {
   value = "${aws_apigatewayv2_api.ai_api.api_endpoint}/prod/ask"
   description = "AI Ask endpoint URL"

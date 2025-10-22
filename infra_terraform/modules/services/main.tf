@@ -37,6 +37,10 @@ locals {
 resource "aws_cloudwatch_log_group" "api"  { name="/ecs/${var.name}-api" retention_in_days=30 }
 resource "aws_cloudwatch_log_group" "ext1" { name="/ecs/${var.name}-extsys1" retention_in_days=30 }
 resource "aws_cloudwatch_log_group" "ext2" { name="/ecs/${var.name}-extsys2" retention_in_days=30 }
+resource "aws_cloudwatch_log_group" "ingest" { 
+  name = "/ecs/${var.name}-ingest" 
+  retention_in_days = 7 
+}
 
 resource "aws_ecs_task_definition" "api" {
   family                   = "${var.name}-api"
@@ -89,6 +93,55 @@ resource "aws_ecs_task_definition" "ext2" {
     name="extsys2", image="${var.repo_ext2}:${var.ext2_tag}", essential=true,
     portMappings=[{containerPort=8002, protocol="tcp"}],
     logConfiguration={logDriver="awslogs", options=local.log_ext2}
+  }])
+}
+
+# Ingest Task Definition (reuses API image but different command)
+resource "aws_ecs_task_definition" "ingest" {
+  family                   = "${var.name}-ingest"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = var.task_exec_role_arn
+  task_role_arn            = var.task_role_arn
+  
+  container_definitions = jsonencode([{
+    name      = "ingest"
+    image     = "${var.repo_api}:${var.api_tag}"  # Reuse API image
+    essential = true
+    
+    # Override command for ingest mode
+    command = ["node", "ingest.js"]
+    
+    environment = [
+      { name = "NODE_ENV", value = "production" },
+      { name = "DB_HOST", value = var.rds_endpoint },
+      { name = "DB_USER", value = var.db_user },
+      { name = "DB_NAME", value = var.db_name },
+      { name = "EXTSYS1_URL", value = "http://extsys1:8001" },
+      { name = "EXTSYS2_URL", value = "http://extsys2:8002" }
+    ]
+    
+    secrets = [
+      { name = "DB_PASS", valueFrom = var.db_pass_secret_arn }
+    ]
+    
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = "/ecs/${var.name}-ingest"
+        "awslogs-region"        = var.region
+        "awslogs-stream-prefix" = "ecs"
+      }
+    }
+    
+    healthCheck = {
+      command = ["CMD-SHELL", "exit 0"]  # Simple health check for batch job
+      interval = 30
+      timeout = 5
+      retries = 3
+    }
   }])
 }
 
@@ -183,3 +236,4 @@ resource "aws_cloudwatch_event_target" "ingest" {
 }
 
 output "svc_sg_id" { value = aws_security_group.svc.id }
+output "ingest_task_definition_arn" { value = aws_ecs_task_definition.ingest.arn }

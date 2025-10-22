@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, Database, MessageCircle, BarChart3, Settings } from 'lucide-react';
 import axios from 'axios';
 
-// Configuration
+// Configuration - Use CloudFront paths for seamless routing
 const API_CONFIG = {
-  AI_ENDPOINT: import.meta.env.VITE_AI_API_URL || 'https://your-api-gateway-url.amazonaws.com/prod/ask',
-  CMDB_API: import.meta.env.VITE_API_URL || 'https://api.yourdomain.com',
+  AI_ENDPOINT: import.meta.env.VITE_AI_API_URL || '/ai/ask',  // CloudFront routes to API Gateway
+  CMDB_API: import.meta.env.VITE_API_URL || '/api',           // CloudFront routes to ALB
   TIMEOUT: 30000
 };
 

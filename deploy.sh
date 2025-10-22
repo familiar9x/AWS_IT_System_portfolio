@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # CMDB Deployment Script
-# Usage: ./deploy.sh [build|deploy|destroy] [environment]
+# Usage: ./deploy.sh [build|deploy|destroy|bootstrap-backend] [environment]
 
 set -e
 
@@ -83,7 +83,7 @@ build_and_push_images() {
     for service in "${SERVICES[@]}"; do
         log_info "Building $service..."
         
-        cd "app/${service/api/api-node}"
+        cd "backend/${service/api/api-node}"
         
         # Build image
         docker build -t "${PROJECT_NAME}-${service}:latest" .
@@ -250,6 +250,7 @@ show_help() {
     echo "Usage: $0 [COMMAND] [ENVIRONMENT]"
     echo ""
     echo "Commands:"
+    echo "  bootstrap-backend Bootstrap Terraform backend (S3 + DynamoDB) - run once"
     echo "  build        Build and push Docker images (API + AI Lambda) to ECR"
     echo "  deploy       Deploy infrastructure with Terraform"
     echo "  frontend     Build and upload frontend to S3"
@@ -262,6 +263,7 @@ show_help() {
     echo "  prod         Production environment (full resources)"
     echo ""
     echo "Examples:"
+    echo "  $0 bootstrap-backend    # Setup S3 backend (run once before first deploy)"
     echo "  $0 build prod           # Build and push all Docker images"
     echo "  $0 deploy prod          # Deploy infrastructure only"
     echo "  $0 frontend prod        # Build and upload frontend only"
@@ -297,6 +299,11 @@ COMMAND=${1:-help}
 ENVIRONMENT=${2:-prod}
 
 case $COMMAND in
+    "bootstrap-backend")
+        log_info "Bootstrapping Terraform backend infrastructure..."
+        ./bootstrap-backend.sh
+        log_success "Backend infrastructure created! You can now enable remote state in backend.tf"
+        ;;
     "build")
         check_prerequisites
         validate_environment $ENVIRONMENT
