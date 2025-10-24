@@ -7,7 +7,7 @@ set -e
 
 # Configuration
 PROJECT_NAME="cmdb"
-AWS_REGION="ap-southeast-1"
+AWS_REGION="us-east-1"
 ENVIRONMENTS=("dev" "prod")
 SERVICES=("api" "extsys1" "extsys2")
 

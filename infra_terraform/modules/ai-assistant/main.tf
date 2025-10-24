@@ -3,13 +3,16 @@ variable "vpc_id" { type = string }
 variable "private_subnet_ids" { type = list(string) }
 variable "rds_sg_id" { type = string }
 variable "db_secret_arn" { type = string }
-variable "tags" { type = map(string) default = {} }
+variable "tags" {
+  type    = map(string)
+  default = {}
+}
 
 # ECR Repository for AI Lambda
 resource "aws_ecr_repository" "ai_lambda" {
   name                 = "${var.name}-ai-assistant"
   image_tag_mutability = "MUTABLE"
-  
+
   image_scanning_configuration {
     scan_on_push = true
   }
@@ -138,14 +141,14 @@ resource "aws_iam_role_policy" "ai_lambda_policy" {
 # Lambda Function (placeholder - will be updated after ECR image push)
 resource "aws_lambda_function" "ai_assistant" {
   function_name = "${var.name}-ai-assistant"
-  role         = aws_iam_role.ai_lambda_role.arn
-  
+  role          = aws_iam_role.ai_lambda_role.arn
+
   package_type = "Image"
   image_uri    = "${aws_ecr_repository.ai_lambda.repository_url}:latest"
-  
+
   timeout     = 60
   memory_size = 512
-  
+
   vpc_config {
     subnet_ids         = var.private_subnet_ids
     security_group_ids = [aws_security_group.ai_lambda.id]
@@ -187,7 +190,7 @@ resource "aws_apigatewayv2_api" "ai_api" {
     allow_methods     = ["POST", "OPTIONS"]
     allow_origins     = ["*"]
     expose_headers    = ["date", "keep-alive"]
-    max_age          = 86400
+    max_age           = 86400
   }
 
   tags = var.tags
@@ -217,13 +220,13 @@ resource "aws_apigatewayv2_stage" "ai_api_stage" {
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.api_gateway.arn
     format = jsonencode({
-      requestId      = "$context.requestId"
-      requestTime    = "$context.requestTime"
-      httpMethod     = "$context.httpMethod"
-      path          = "$context.path"
-      status        = "$context.status"
-      responseTime  = "$context.responseTime"
-      error         = "$context.error.message"
+      requestId    = "$context.requestId"
+      requestTime  = "$context.requestTime"
+      httpMethod   = "$context.httpMethod"
+      path         = "$context.path"
+      status       = "$context.status"
+      responseTime = "$context.responseTime"
+      error        = "$context.error.message"
     })
   }
 
@@ -249,28 +252,28 @@ resource "aws_lambda_permission" "allow_api_gateway" {
 
 # VPC Endpoints for Lambda (if no NAT Gateway)
 resource "aws_vpc_endpoint" "secrets_manager" {
-  vpc_id              = var.vpc_id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.secretsmanager"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = var.private_subnet_ids
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
-  
+  vpc_id             = var.vpc_id
+  service_name       = "com.amazonaws.${data.aws_region.current.name}.secretsmanager"
+  vpc_endpoint_type  = "Interface"
+  subnet_ids         = var.private_subnet_ids
+  security_group_ids = [aws_security_group.vpc_endpoints.id]
+
   private_dns_enabled = true
-  
+
   tags = merge(var.tags, {
     Name = "${var.name}-secretsmanager-endpoint"
   })
 }
 
 resource "aws_vpc_endpoint" "logs" {
-  vpc_id              = var.vpc_id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.logs"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = var.private_subnet_ids
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
-  
+  vpc_id             = var.vpc_id
+  service_name       = "com.amazonaws.${data.aws_region.current.name}.logs"
+  vpc_endpoint_type  = "Interface"
+  subnet_ids         = var.private_subnet_ids
+  security_group_ids = [aws_security_group.vpc_endpoints.id]
+
   private_dns_enabled = true
-  
+
   tags = merge(var.tags, {
     Name = "${var.name}-logs-endpoint"
   })
@@ -307,26 +310,26 @@ data "aws_region" "current" {}
 
 # Outputs
 output "api_gateway_url" {
-  value = "${aws_apigatewayv2_api.ai_api.api_endpoint}/prod"
+  value       = "${aws_apigatewayv2_api.ai_api.api_endpoint}/prod"
   description = "API Gateway URL for AI Assistant"
 }
 
 output "api_gateway_domain" {
-  value = replace(aws_apigatewayv2_api.ai_api.api_endpoint, "https://", "")
+  value       = replace(aws_apigatewayv2_api.ai_api.api_endpoint, "https://", "")
   description = "API Gateway domain name for CloudFront origin"
 }
 
 output "ask_endpoint" {
-  value = "${aws_apigatewayv2_api.ai_api.api_endpoint}/prod/ask"
+  value       = "${aws_apigatewayv2_api.ai_api.api_endpoint}/prod/ask"
   description = "AI Ask endpoint URL"
 }
 
 output "ecr_repository_url" {
-  value = aws_ecr_repository.ai_lambda.repository_url
+  value       = aws_ecr_repository.ai_lambda.repository_url
   description = "ECR repository URL for AI Lambda"
 }
 
 output "lambda_function_name" {
-  value = aws_lambda_function.ai_assistant.function_name
+  value       = aws_lambda_function.ai_assistant.function_name
   description = "Lambda function name"
 }

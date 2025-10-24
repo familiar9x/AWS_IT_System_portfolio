@@ -6,7 +6,7 @@ resource "aws_secretsmanager_secret" "db" {
   name                    = "${var.name}/dbpass"
   description             = "Database password for ${var.name} CMDB"
   recovery_window_in_days = 7
-  
+
   tags = {
     Name        = "${var.name}-db-password"
     Environment = "production"
@@ -27,7 +27,7 @@ resource "aws_secretsmanager_secret" "api_keys" {
   name                    = "${var.name}/api-keys"
   description             = "API keys for external system integrations"
   recovery_window_in_days = 7
-  
+
   tags = {
     Name        = "${var.name}-api-keys"
     Environment = "production"
@@ -45,12 +45,12 @@ resource "aws_secretsmanager_secret_version" "api_keys_version" {
 }
 
 # Output both secrets
-output "db_secret_arn" { 
-  value = aws_secretsmanager_secret.db.arn 
+output "db_secret_arn" {
+  value       = aws_secretsmanager_secret.db.arn
   description = "ARN of the database password secret"
 }
 
-output "api_keys_secret_arn" { 
-  value = aws_secretsmanager_secret.api_keys.arn 
+output "api_keys_secret_arn" {
+  value       = aws_secretsmanager_secret.api_keys.arn
   description = "ARN of the API keys secret"
 }

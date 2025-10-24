@@ -1,5 +1,5 @@
 variable "account_id" { type = string }
-variable "region" { type = string }           # e.g., ap-southeast-1
+variable "region" { type = string }           # e.g., us-east-1
 variable "region_us_east_1" { type = string } # must be us-east-1 for CloudFront
 variable "name" { type = string }             # stack prefix, e.g., cmdb
 variable "base_domain" { type = string }      # example.com (must be a Route53 hosted zone)
@@ -20,4 +20,11 @@ variable "ext2_image_tag" { type = string }
 variable "tags" {
   type    = map(string)
   default = { Project = "CMDB" }
+}
+
+# IAM Deployment Users
+variable "prod_users" {
+  description = "List of IAM usernames for prod/DevOps environment deployment"
+  type        = list(string)
+  default     = []
 }

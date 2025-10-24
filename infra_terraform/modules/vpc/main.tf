@@ -1,7 +1,10 @@
 variable "name" { type = string }
 variable "cidr" { type = string }
 variable "az_count" { type = number }
-variable "tags" { type = map(string) default = {} }
+variable "tags" { 
+  type    = map(string)
+  default = {}
+}
 
 data "aws_availability_zones" "az" {}
 locals { azs = slice(data.aws_availability_zones.az.names, 0, var.az_count) }
@@ -34,7 +37,10 @@ resource "aws_subnet" "private" {
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.this.id
-  route { cidr_block = "0.0.0.0/0" gateway_id = aws_internet_gateway.igw.id }
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
 }
 resource "aws_route_table_association" "public" {
   count          = var.az_count
@@ -42,7 +48,10 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-resource "aws_eip" "nat" { vpc = true depends_on = [aws_internet_gateway.igw] }
+resource "aws_eip" "nat" {
+  vpc        = true
+  depends_on = [aws_internet_gateway.igw]
+}
 resource "aws_nat_gateway" "nat" {
   subnet_id     = aws_subnet.public[0].id
   allocation_id = aws_eip.nat.id
@@ -50,7 +59,10 @@ resource "aws_nat_gateway" "nat" {
 
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.this.id
-  route { cidr_block = "0.0.0.0/0" nat_gateway_id = aws_nat_gateway.nat.id }
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat.id
+  }
 }
 resource "aws_route_table_association" "private" {
   count          = var.az_count

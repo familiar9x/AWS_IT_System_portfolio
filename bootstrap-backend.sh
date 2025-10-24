@@ -4,12 +4,12 @@
 
 set -e
 
-# Configuration
-ENVIRONMENT="prod"
-REGION="ap-southeast-1"
+# Get environment from argument (default: prod)
+ENVIRONMENT="${1:-prod}"
+REGION="us-east-1"
 ACCOUNT_ID="${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}"
-STATE_BUCKET_NAME="cmdb-terraform-state-${ACCOUNT_ID}-${REGION}"
-LOCK_TABLE_NAME="cmdb-terraform-state-lock"
+STATE_BUCKET_NAME="cmdb-terraform-state-${ENVIRONMENT}-${ACCOUNT_ID}-${REGION}"
+LOCK_TABLE_NAME="cmdb-terraform-state-lock-${ENVIRONMENT}"
 
 echo "🚀 Bootstrap Terraform Backend Infrastructure"
 echo "Environment: $ENVIRONMENT"
@@ -78,11 +78,14 @@ else
 fi
 
 # Create backend configuration file
-cat > "backend.tf" << EOF
+BACKEND_DIR="infra_terraform/envs/${ENVIRONMENT}"
+mkdir -p "$BACKEND_DIR"
+
+cat > "${BACKEND_DIR}/backend.tf" << EOF
 terraform {
   backend "s3" {
     bucket         = "$STATE_BUCKET_NAME"
-    key            = "cmdb/terraform.tfstate"
+    key            = "cmdb/${ENVIRONMENT}/terraform.tfstate"
     region         = "$REGION"
     dynamodb_table = "$LOCK_TABLE_NAME"
     encrypt        = true
@@ -93,22 +96,22 @@ EOF
 echo ""
 echo "🎉 Terraform backend infrastructure created successfully!"
 echo ""
-echo "📋 Next steps:"
-echo "1. Add backend configuration to your main.tf:"
-echo "   terraform {"
-echo "     backend \"s3\" {"
-echo "       bucket         = \"$STATE_BUCKET_NAME\""
-echo "       key            = \"cmdb/terraform.tfstate\""
-echo "       region         = \"$REGION\""
-echo "       dynamodb_table = \"$LOCK_TABLE_NAME\""
-echo "       encrypt        = true"
-echo "     }"
-echo "   }"
+echo "📋 Backend configuration saved to: ${BACKEND_DIR}/backend.tf"
 echo ""
-echo "2. Initialize Terraform with the new backend:"
+echo "📋 Next steps:"
+echo "1. Go to your environment directory:"
+echo "   cd ${BACKEND_DIR}"
+echo ""
+echo "2. Copy and configure terraform.tfvars:"
+echo "   cp terraform.tfvars.example terraform.tfvars"
+echo "   # Edit terraform.tfvars with your values"
+echo ""
+echo "3. Initialize Terraform with the new backend:"
 echo "   terraform init"
 echo ""
-echo "3. If you have existing state, migrate it:"
+echo "4. If you have existing state, migrate it:"
 echo "   terraform init -migrate-state"
 echo ""
-echo "Backend configuration saved to: backend.tf"
+echo "Or use the deployment script:"
+echo "   ./deploy-dev.sh    # For dev environment"
+echo "   ./deploy.sh prod   # For prod environment"

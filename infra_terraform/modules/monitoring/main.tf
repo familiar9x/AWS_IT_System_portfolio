@@ -3,12 +3,15 @@ variable "cluster_name" { type = string }
 variable "service_names" { type = list(string) }
 variable "alb_arn_suffix" { type = string }
 variable "target_group_arn_suffix" { type = string }
-variable "sns_topic_arn" { type = string default = "" }
+variable "sns_topic_arn" {
+  type    = string
+  default = ""
+}
 
 # CloudWatch Alarms for ECS Services
 resource "aws_cloudwatch_metric_alarm" "ecs_cpu_high" {
   count = length(var.service_names)
-  
+
   alarm_name          = "${var.name}-${var.service_names[count.index]}-cpu-high"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "2"
@@ -32,7 +35,7 @@ resource "aws_cloudwatch_metric_alarm" "ecs_cpu_high" {
 
 resource "aws_cloudwatch_metric_alarm" "ecs_memory_high" {
   count = length(var.service_names)
-  
+
   alarm_name          = "${var.name}-${var.service_names[count.index]}-memory-high"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "2"
@@ -121,7 +124,7 @@ resource "aws_cloudwatch_dashboard" "main" {
           ]
           view    = "timeSeries"
           stacked = false
-          region  = "ap-southeast-1"
+          region  = "us-east-1"
           title   = "ECS CPU Utilization"
           period  = 300
         }
@@ -141,7 +144,7 @@ resource "aws_cloudwatch_dashboard" "main" {
           ]
           view    = "timeSeries"
           stacked = false
-          region  = "ap-southeast-1"
+          region  = "us-east-1"
           title   = "ECS Memory Utilization"
           period  = 300
         }
@@ -163,7 +166,7 @@ resource "aws_cloudwatch_dashboard" "main" {
           ]
           view    = "timeSeries"
           stacked = false
-          region  = "ap-southeast-1"
+          region  = "us-east-1"
           title   = "ALB Metrics"
           period  = 300
         }
@@ -182,7 +185,7 @@ resource "aws_cloudwatch_dashboard" "main" {
           ]
           view    = "timeSeries"
           stacked = false
-          region  = "ap-southeast-1"
+          region  = "us-east-1"
           title   = "Target Health"
           period  = 300
         }
@@ -192,5 +195,5 @@ resource "aws_cloudwatch_dashboard" "main" {
 }
 
 output "dashboard_url" {
-  value = "https://console.aws.amazon.com/cloudwatch/home?region=ap-southeast-1#dashboards:name=${aws_cloudwatch_dashboard.main.dashboard_name}"
+  value = "https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards:name=${aws_cloudwatch_dashboard.main.dashboard_name}"
 }

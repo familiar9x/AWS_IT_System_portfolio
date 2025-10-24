@@ -50,19 +50,19 @@ cd ../../ai_lambda
 docker build -t cmdb-ai-assistant:1.0.0 .
 
 # Push to ECR (after terraform creates repos)
-aws ecr get-login-password --region ap-southeast-1 | docker login --username AWS --password-stdin <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <account_id>.dkr.ecr.us-east-1.amazonaws.com
 
-docker tag cmdb-api:1.0.0 <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-api:1.0.0
-docker push <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-api:1.0.0
+docker tag cmdb-api:1.0.0 <account_id>.dkr.ecr.us-east-1.amazonaws.com/cmdb-api:1.0.0
+docker push <account_id>.dkr.ecr.us-east-1.amazonaws.com/cmdb-api:1.0.0
 
-docker tag cmdb-extsys1:1.0.0 <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-extsys1:1.0.0  
-docker push <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-extsys1:1.0.0
+docker tag cmdb-extsys1:1.0.0 <account_id>.dkr.ecr.us-east-1.amazonaws.com/cmdb-extsys1:1.0.0  
+docker push <account_id>.dkr.ecr.us-east-1.amazonaws.com/cmdb-extsys1:1.0.0
 
-docker tag cmdb-extsys2:1.0.0 <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-extsys2:1.0.0
-docker push <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-extsys2:1.0.0
+docker tag cmdb-extsys2:1.0.0 <account_id>.dkr.ecr.us-east-1.amazonaws.com/cmdb-extsys2:1.0.0
+docker push <account_id>.dkr.ecr.us-east-1.amazonaws.com/cmdb-extsys2:1.0.0
 
-docker tag cmdb-ai-assistant:1.0.0 <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-ai-assistant:1.0.0
-docker push <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/cmdb-ai-assistant:1.0.0
+docker tag cmdb-ai-assistant:1.0.0 <account_id>.dkr.ecr.us-east-1.amazonaws.com/cmdb-ai-assistant:1.0.0
+docker push <account_id>.dkr.ecr.us-east-1.amazonaws.com/cmdb-ai-assistant:1.0.0
 ```
 
 ### 3. Deploy with Terraform
@@ -79,7 +79,28 @@ terraform plan
 terraform apply
 ```
 
-### 4. Setup Terraform Backend (Recommended)
+### 4. Configure IAM Deployment Users (Optional)
+```bash
+# Edit terraform.tfvars to add deployment users
+# For dev environment:
+dev_users = ["john-doe", "jane-smith", "bob-wilson"]
+
+# For prod environment:
+prod_users = ["devops-lead", "senior-devops1", "senior-devops2"]
+
+# After terraform apply, retrieve access keys securely:
+terraform output -json dev_access_keys > dev-keys.json   # Dev env
+terraform output -json prod_access_keys > prod-keys.json # Prod env
+
+# IMPORTANT: Store credentials securely and delete plaintext files!
+# See infra_terraform/modules/iam-deployment-users/README.md for details
+```
+
+**IAM Groups Created**:
+- **Dev**: `cmdb-dev-deployers` - Limited deployment permissions
+- **Prod**: `cmdb-devops-deployers` - Full deployment permissions
+
+### 5. Setup Terraform Backend (Recommended)
 ```bash
 # Create S3 bucket and DynamoDB table for remote state
 ./deploy.sh bootstrap-backend
@@ -92,7 +113,7 @@ cd infra_terraform/envs/prod
 terraform init -migrate-state
 ```
 
-### 5. Setup Database Schema (Required for AI)
+### 6. Setup Database Schema (Required for AI)
 ```bash
 # Connect to your RDS instance and run:
 sqlcmd -S <rds-endpoint> -U <username> -P <password> -d CMDB -i database/ai_schema.sql
@@ -100,14 +121,14 @@ sqlcmd -S <rds-endpoint> -U <username> -P <password> -d CMDB -i database/ai_sche
 # Or use SQL Server Management Studio to run the script
 ```
 
-### 6. Test the deployment
+### 7. Test the deployment
 - **Frontend with AI Chat**: `https://app.<base_domain>`
 - **API Health**: `https://api.<base_domain>/health`
 - **API Endpoints**: `https://api.<base_domain>/api/v1/ci`
 - **AI Assistant**: `https://<ai-api-gateway-url>/prod/ask`
 - **CloudWatch Dashboard**: Check terraform outputs for dashboard URL
 
-### 7. Configure Frontend Environment
+### 8. Configure Frontend Environment
 ```bash
 cd frontend
 cp .env.example .env
@@ -153,11 +174,11 @@ cp .env.example .env
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `account_id` | Your AWS account ID | `123456789012` |
-| `region` | Primary region for resources | `ap-southeast-1` |
+| `region` | Primary region for resources | `us-east-1` |
 | `region_us_east_1` | Must be `us-east-1` for CloudFront | `us-east-1` |
 | `base_domain` | Your domain (Route53 hosted) | `example.com` |
 | `cloudfront_cert_arn` | ACM cert in us-east-1 for app subdomain | `arn:aws:acm:us-east-1:...` |
-| `alb_cert_arn` | ACM cert in primary region for API | `arn:aws:acm:ap-southeast-1:...` |
+| `alb_cert_arn` | ACM cert in primary region for API | `arn:aws:acm:us-east-1:...` |
 | `db_username` | Database admin username | `cmdbadmin` |
 | `db_password` | Database password (**use strong password**) | `YourSecurePassword123!` |
 | `api_image_tag` | Docker tag for API service | `1.0.0` |
@@ -394,9 +415,9 @@ terraform init -migrate-state
 ```hcl
 terraform {
   backend "s3" {
-    bucket         = "cmdb-terraform-state-ACCOUNT_ID-ap-southeast-1"
+    bucket         = "cmdb-terraform-state-ACCOUNT_ID-us-east-1"
     key            = "cmdb/terraform.tfstate"
-    region         = "ap-southeast-1"
+    region         = "us-east-1"
     dynamodb_table = "cmdb-terraform-state-lock"
     encrypt        = true
   }

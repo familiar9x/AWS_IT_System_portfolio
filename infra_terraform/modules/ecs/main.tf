@@ -4,7 +4,10 @@ resource "aws_ecs_cluster" "this" { name = var.name }
 data "aws_iam_policy_document" "assume" {
   statement {
     actions = ["sts:AssumeRole"]
-    principals { type = "Service", identifiers = ["ecs-tasks.amazonaws.com"] }
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
   }
 }
 
@@ -22,7 +25,7 @@ resource "aws_iam_role" "task" {
   assume_role_policy = data.aws_iam_policy_document.assume.json
 }
 
-output "cluster_arn"        { value = aws_ecs_cluster.this.arn }
-output "cluster_name"       { value = aws_ecs_cluster.this.name }
+output "cluster_arn" { value = aws_ecs_cluster.this.arn }
+output "cluster_name" { value = aws_ecs_cluster.this.name }
 output "task_exec_role_arn" { value = aws_iam_role.exec.arn }
-output "task_role_arn"      { value = aws_iam_role.task.arn }
+output "task_role_arn" { value = aws_iam_role.task.arn }

@@ -10,6 +10,15 @@ provider "aws" {
   region = var.region_us_east_1
 }
 
+# IAM Deployment Users and Groups for Prod Environment (DevOps)
+module "iam_deployment" {
+  source       = "../../modules/iam-deployment-users"
+  environment  = "prod"
+  project_name = var.name
+  create_users = true
+  prod_users   = var.prod_users
+}
+
 # VPC
 module "vpc" {
   source   = "../../modules/vpc"
@@ -180,9 +189,25 @@ resource "aws_lb_listener_rule" "update_cloudfront_rule" {
 # Outputs
 output "fe_bucket" { value = module.cloudfront.bucket_name }
 output "fe_distribution_id" { value = module.cloudfront.distribution_id }
-output "fe_distribution_host" { value = module.cf_fe.distribution_host }
+output "fe_distribution_host" { value = module.cloudfront.distribution_host }
 output "alb_dns" { value = module.alb.alb_dns }
 output "rds_endpoint" { value = module.rds.endpoint }
+
+# IAM Deployment outputs
+output "devops_group_name" {
+  value       = module.iam_deployment.prod_group_name
+  description = "IAM group name for DevOps deployers"
+}
+
+output "devops_user_names" {
+  value       = module.iam_deployment.prod_user_names
+  description = "List of DevOps user names"
+}
+
+output "devops_access_keys_info" {
+  value       = "DevOps access keys created - retrieve with: terraform output -json prod_access_keys"
+  description = "Information about DevOps access keys"
+}
 
 # Monitoring outputs
 output "cloudwatch_dashboard_url" {

@@ -20,7 +20,7 @@ The project now fully implements the enterprise CMDB system with AI assistant as
 
  Tạo ACM ở us-east-1 cho app.example.com → dùng cho CloudFront (DNS validation).
 
- Tạo ACM ở region chính (vd ap-southeast-1) cho app.example.com (nếu CF→ALB dùng cùng hostname) hoặc api.example.com → dùng cho ALB.
+ Tạo ACM ở region chính (vd us-east-1) cho app.example.com (nếu CF→ALB dùng cùng hostname) hoặc api.example.com → dùng cho ALB.
 
 2) Biến Terraform
 
